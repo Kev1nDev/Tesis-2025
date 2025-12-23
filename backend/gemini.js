@@ -82,14 +82,31 @@ function buildPrompt({ mode, userPrompt }) {
 }
 
 function tryParseJson(text) {
-  // Gemini a veces envía texto extra. Intentamos recuperar el primer JSON.
-  const firstBrace = text.indexOf('{');
-  const lastBrace = text.lastIndexOf('}');
-  if (firstBrace >= 0 && lastBrace > firstBrace) {
-    const slice = text.slice(firstBrace, lastBrace + 1);
-    return JSON.parse(slice);
+  function stripCodeFences(input) {
+    const s = String(input ?? '');
+    // If the model returns fenced blocks (```json ... ```), prefer the first fenced block body.
+    const fenceMatch = s.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (fenceMatch && fenceMatch[1]) return fenceMatch[1];
+    return s;
   }
-  return JSON.parse(text);
+
+  // Gemini a veces envía texto extra o envuelve el JSON en markdown. Lo limpiamos.
+  const cleaned = stripCodeFences(text).trim().replace(/^`+/, '').replace(/`+$/, '').trim();
+
+  // Intento 1: extraer el primer objeto JSON por llaves.
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    const slice = cleaned.slice(firstBrace, lastBrace + 1);
+    try {
+      return JSON.parse(slice);
+    } catch (_) {
+      // fallthrough
+    }
+  }
+
+  // Intento 2: parse directo (por si ya es JSON puro).
+  return JSON.parse(cleaned);
 }
 
 async function describeWithGemini({ apiKey, model, mode, imageBase64, imageMimeType, userPrompt }) {
