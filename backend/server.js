@@ -3,7 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const dotenv = require('dotenv');
 
-const { describeWithGemini } = require('./gemini');
+const { describeWithGemini, warmUpGemini } = require('./gemini');
 
 const app = express();
 
@@ -102,6 +102,7 @@ app.post('/describe', async (req, res) => {
         debug: {
           timing,
           requestMeta,
+          gemini: r.timing,
         },
       });
     } catch (e) {
@@ -154,4 +155,13 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`[tesis-backend] gemini key: ${HAS_GEMINI_KEY ? 'OK' : 'MISSING'}`);
   if (process.env.GEMINI_MODEL) console.log(`[tesis-backend] gemini model: ${process.env.GEMINI_MODEL}`);
   if (process.env.GEMINI_TIMEOUT_MS) console.log(`[tesis-backend] gemini timeout: ${process.env.GEMINI_TIMEOUT_MS}ms`);
+
+  const warmUpEnabled = String(process.env.GEMINI_WARMUP_ON_START ?? '').trim().toLowerCase();
+  if (HAS_GEMINI_KEY && (warmUpEnabled === '1' || warmUpEnabled === 'true' || warmUpEnabled === 'yes')) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    const model = process.env.GEMINI_MODEL;
+    warmUpGemini({ apiKey, model })
+      .then((r) => console.log('[tesis-backend] gemini warm-up:', r))
+      .catch((e) => console.log('[tesis-backend] gemini warm-up failed:', e instanceof Error ? e.message : String(e)));
+  }
 });

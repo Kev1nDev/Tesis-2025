@@ -62,39 +62,23 @@ async function resolveModelName({ apiKey, desiredModel }) {
 }
 
 function buildPrompt({ mode, userPrompt }) {
-  const base =
-    'Eres un asistente de visión que describe escenas reales de forma precisa. ' +
-    'No inventes detalles. Si no estás seguro, dilo explícitamente en "uncertainties".\n\n' +
-    'Devuelve SOLO un JSON válido (sin markdown, sin texto extra) con este esquema:\n' +
-    '{\n' +
-    '  "summary": string,\n' +
-    '  "detailed": string,\n' +
-    '  "points_of_interest": string[],\n' +
-    '  "uncertainties": string[],\n' +
-    '  "confidence": number\n' +
-    '}\n\n' +
-    'Reglas:\n' +
-    '- confidence debe estar entre 0 y 1\n' +
-    '- summary debe ser 1-3 frases\n' +
-    '- detailed debe ser más completo, sin exagerar\n' +
-    '- points_of_interest: 3-8 items\n' +
-    '- uncertainties: lista vacía si estás seguro\n\n';
-
+  // Prompt compacto para reducir tokens/latencia SIN perder detalle.
+  // (La latencia suele subir con prompts largos y outputs demasiado extensos.)
   const policy =
     mode === 'accurate'
-      ? 'Prioriza precisión aunque tardes un poco más.'
+      ? 'Modo: preciso. Si dudas, dilo en uncertainties.'
       : mode === 'fast'
-        ? 'Prioriza velocidad, pero no inventes.'
-        : 'Balancea precisión y velocidad.';
+        ? 'Modo: rápido. Sé breve pero correcto; no inventes.'
+        : 'Modo: balanceado. Claro y útil; no inventes.';
 
-  const task =
-    (userPrompt?.trim()
-      ? `Instrucción adicional del usuario: ${userPrompt.trim()}\n\n`
-      : '') +
-    'Tarea: describe claramente la imagen y señala puntos de interés. ' +
-    'Incluye un resumen y una descripción detallada.';
+  const base =
+    'Describe la imagen en español. Devuelve SOLO JSON válido (sin markdown) con claves: ' +
+    'summary, detailed, points_of_interest, uncertainties, confidence.\n' +
+    'Formato: summary 2-3 frases; detailed 6-10 frases (detallado, sin exagerar); ' +
+    'points_of_interest 5-8 ítems; uncertainties vacío si no hay dudas; confidence en [0,1].\n';
 
-  return `${base}${policy}\n\n${task}`;
+  const extra = userPrompt?.trim() ? `Extra: ${userPrompt.trim()}\n` : '';
+  return `${base}${policy}\n${extra}`;
 }
 
 function tryParseJson(text) {
@@ -114,7 +98,18 @@ async function describeWithGemini({ apiKey, model, mode, imageBase64, imageMimeT
 
   const genAI = new GoogleGenerativeAI(apiKey);
   const requestedModelName = normalizeModelName(model || 'gemini-2.0-flash');
-  let geminiModel = genAI.getGenerativeModel({ model: requestedModelName });
+  const maxOutputTokensEnv = Number(process.env.GEMINI_MAX_OUTPUT_TOKENS ?? NaN);
+  // Defaults conservadores: permiten "detailed" sin generar biblias.
+  const defaultMaxOutputTokens = mode === 'fast' ? 512 : mode === 'accurate' ? 1100 : 900;
+  const maxOutputTokens = Number.isFinite(maxOutputTokensEnv) && maxOutputTokensEnv > 0 ? maxOutputTokensEnv : defaultMaxOutputTokens;
+
+  let geminiModel = genAI.getGenerativeModel({
+    model: requestedModelName,
+    generationConfig: {
+      temperature: 0.2,
+      maxOutputTokens,
+    },
+  });
 
   const prompt = buildPrompt({ mode, userPrompt });
 
@@ -141,6 +136,7 @@ async function describeWithGemini({ apiKey, model, mode, imageBase64, imageMimeT
   }
 
   let result;
+  const genT0 = process.hrtime.bigint();
   try {
     result = await runGenerate();
   } catch (e) {
@@ -149,7 +145,13 @@ async function describeWithGemini({ apiKey, model, mode, imageBase64, imageMimeT
     if (/404 Not Found/i.test(msg) && /ListModels|list models|models\//i.test(msg)) {
       const fallbackModelName = await resolveModelName({ apiKey, desiredModel: requestedModelName });
       if (fallbackModelName && fallbackModelName !== requestedModelName) {
-        geminiModel = genAI.getGenerativeModel({ model: fallbackModelName });
+        geminiModel = genAI.getGenerativeModel({
+          model: fallbackModelName,
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens,
+          },
+        });
         result = await runGenerate();
       } else {
         throw e;
@@ -158,9 +160,13 @@ async function describeWithGemini({ apiKey, model, mode, imageBase64, imageMimeT
       throw e;
     }
   }
+  const genT1 = process.hrtime.bigint();
+
+  const parseT0 = process.hrtime.bigint();
 
   const text = result?.response?.text?.() ?? '';
   const parsed = tryParseJson(text);
+  const parseT1 = process.hrtime.bigint();
 
   // Normalize output.
   const summary = typeof parsed.summary === 'string' ? parsed.summary : '';
@@ -178,9 +184,46 @@ async function describeWithGemini({ apiKey, model, mode, imageBase64, imageMimeT
     uncertainties,
     confidence,
     model: normalizeModelName(model || requestedModelName) || 'unknown',
+    timing: {
+      geminiMs: Math.max(0, Math.round(Number(genT1 - genT0) / 1_000_000)),
+      parseMs: Math.max(0, Math.round(Number(parseT1 - parseT0) / 1_000_000)),
+      maxOutputTokens,
+    },
   };
+}
+
+async function warmUpGemini({ apiKey, model }) {
+  if (!apiKey) return { ok: false, reason: 'missing apiKey' };
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const requestedModelName = normalizeModelName(model || 'gemini-2.0-flash');
+  let geminiModel = genAI.getGenerativeModel({
+    model: requestedModelName,
+    generationConfig: { temperature: 0, maxOutputTokens: 8 },
+  });
+
+  try {
+    await geminiModel.generateContent([{ text: 'ping' }]);
+    return { ok: true, model: requestedModelName };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    try {
+      const fallbackModelName = await resolveModelName({ apiKey, desiredModel: requestedModelName });
+      if (fallbackModelName && fallbackModelName !== requestedModelName) {
+        geminiModel = genAI.getGenerativeModel({
+          model: fallbackModelName,
+          generationConfig: { temperature: 0, maxOutputTokens: 8 },
+        });
+        await geminiModel.generateContent([{ text: 'ping' }]);
+        return { ok: true, model: fallbackModelName, note: 'resolved model' };
+      }
+    } catch (_) {
+      // ignore
+    }
+    return { ok: false, reason: msg };
+  }
 }
 
 module.exports = {
   describeWithGemini,
+  warmUpGemini,
 };
