@@ -6,6 +6,6 @@ export async function describeEnvironment(payload: DescribeRequest): Promise<Des
     method: 'POST',
     path: '/describe',
     body: payload,
-    timeoutMs: 60_000,
+    timeoutMs: 120_000,
   });
 }

@@ -34,13 +34,13 @@ La app móvil usa la variable `EXPO_PUBLIC_API_BASE_URL`.
 1) Crea/edita el archivo `mobile/.env` con la IP local de tu PC:
 
 ```dotenv
-EXPO_PUBLIC_API_BASE_URL=http://TU_IP:3000
+EXPO_PUBLIC_API_BASE_URL=http://TU_IP:3001
 ```
 
 2) Obtén tu IP con `ipconfig` (IPv4 de Wi‑Fi). Ejemplo:
 
 ```dotenv
-EXPO_PUBLIC_API_BASE_URL=http://192.168.0.108:3000
+EXPO_PUBLIC_API_BASE_URL=http://192.168.0.108:3001
 ```
 
 > Importante: en el teléfono **NO** uses `localhost`.
@@ -57,7 +57,7 @@ Esto abre 2 ventanas:
 
 ### Puertos
 
-- Backend: por defecto intenta `3000`. Si está ocupado, usa `3001`, `3002`, etc. y actualiza `mobile/.env` automáticamente.
+- Backend: por defecto intenta `3001`. Si está ocupado, usa `3002`, `3003`, etc. y actualiza `mobile/.env` automáticamente.
 - Expo: corre en `8083` para evitar prompts si `8081` está ocupado.
 
 ## Ejecutar (manual)
@@ -73,7 +73,8 @@ npm --prefix backend run dev
 Verificación rápida:
 
 - En el PC: `http://localhost:3000/health`
-- En el teléfono: `http://TU_IP:3000/health`
+- En el PC: `http://localhost:3001/health`
+- En el teléfono: `http://TU_IP:3001/health`
 
 ### 2) App móvil (Expo)
 
@@ -99,11 +100,46 @@ npm --prefix mobile run start -- --clear
   - confianza (si la API la devuelve)
 - Navegación por gestos (swipe izquierda/derecha) entre módulos
 
-### Backend (stub)
+#### Implementación: “Descripción del entorno” (cámara → IA)
+
+En la pestaña **Historial** se implementó el flujo end-to-end:
+
+1) Se solicita permiso de cámara (Expo).
+2) Se abre la cámara, se captura una foto (tamaño reducido) y se guarda en base64.
+3) Se envía a la API `POST /describe` con:
+  - `imageBase64` + `imageMimeType`
+  - `mode` (`balanced | fast | accurate`)
+  - `prompt` (instrucción adicional para el modelo)
+  - `sensors.capturedAtIso` (trazabilidad para investigación)
+4) Se muestra:
+  - descripción retornada por el backend
+  - latencia total medida en el móvil
+  - tiempo de backend (`debug.timing.durationMs`, cuando está disponible)
+  - confianza y modelo (si la API lo devuelve)
+
+### Backend (Gemini + fallback stub)
 
 Endpoints:
 - `GET /health`: prueba de vida
-- `POST /describe`: devuelve `{ description, confidence, model }` y simula latencia por modo
+- `POST /describe`:
+  - Si hay `GEMINI_API_KEY` y llega una imagen, usa **Gemini** server-side y devuelve una descripción estructurada.
+  - Si falta la key, no llega imagen, o Gemini falla/expira, hace fallback a **stub** (simulación) para no romper el pipeline.
+  - Incluye métricas de tiempo en `debug.timing` (útil para la tesis).
+
+#### Configuración de Gemini (solo backend)
+
+1) Crea `backend/.env` (NO se commitea) usando como referencia `backend/.env.example`.
+
+Ejemplo:
+
+```dotenv
+GEMINI_API_KEY=TU_API_KEY
+GEMINI_MODEL=gemini-2.5-flash
+GEMINI_TIMEOUT_MS=25000
+PORT=3001
+```
+
+2) Inicia el backend y verifica en consola que la key esté “OK”.
 
 ## Troubleshooting
 
@@ -113,8 +149,10 @@ Endpoints:
 
 ### “Error: listen EADDRINUSE 0.0.0.0:3000”
 
-- Ya hay algo usando el puerto 3000.
-- Solución rápida: usa `run-dev.cmd` (elige un puerto libre automáticamente).
+### “Error: listen EADDRINUSE 0.0.0.0:3001”
+
+- Ya hay algo usando el puerto 3001.
+- Solución rápida: usa `run-dev.cmd` (elige un puerto libre automáticamente y actualiza `mobile/.env`).
 
 ### “Network request failed” en iOS
 
@@ -130,9 +168,9 @@ Checklist:
 
 ## Próximos pasos sugeridos
 
-- Captura real de foto/audio y envío al backend (multipart/form-data)
-- Historial local de resultados (latencia/mode/confianza)
-- Política de reintento: si baja confianza, reintentar en `accurate`
+- Historial persistente de resultados (storage) con métricas para análisis
+- Envío de audio (micrófono) para enriquecer contexto
+- Optimización de latencia (tamaño imagen/prompt, warm-up, reintentos controlados)
 
 ---
 

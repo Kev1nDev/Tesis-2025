@@ -2,6 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { DescribeScreen } from './src/screens/DescribeScreen';
+import { HistoryScreen } from './src/screens/HistoryScreen';
 import { PlaceholderScreen } from './src/screens/PlaceholderScreen';
 import { SwipePager } from './src/ui/SwipePager';
 
@@ -10,11 +11,7 @@ export default function App() {
 
   const screens = [
     <DescribeScreen key="describe" />,
-    <PlaceholderScreen
-      key="history"
-      title="Historial (placeholder)"
-      description="Aquí irán las descripciones anteriores, con métricas (latencia, confianza, modo)."
-    />,
+    <HistoryScreen key="history" />,
     <PlaceholderScreen
       key="settings"
       title="Ajustes (placeholder)"

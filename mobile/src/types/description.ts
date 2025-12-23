@@ -12,8 +12,10 @@ export type DescribeRequest = {
   mode?: 'balanced' | 'accurate' | 'fast';
   // base64 image, without data: prefix (server-dependent)
   imageBase64?: string;
+  imageMimeType?: string;
   // base64 audio, without data: prefix (server-dependent)
   audioBase64?: string;
+  prompt?: string;
   sensors: SensorSnapshot;
 };
 

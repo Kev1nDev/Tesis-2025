@@ -8,12 +8,12 @@ Opción 2 (PowerShell):
 
 Qué hace:
 - Abre 2 ventanas: backend (Node/Express) y Expo (React Native)
-- Backend en puerto 3000 (configurable). Si 3000 está ocupado, usa 3001/3002/etc.
+- Backend en puerto 3001 (configurable). Si 3001 está ocupado, usa 3002/3003/etc.
 - Expo en puerto 8083 para evitar el prompt "Port 8081 is being used".
 
 Parámetros (PowerShell):
-- .\run-dev.ps1 -BackendPort 3000 -ExpoPort 8083 -ExpoHost lan
+- .\run-dev.ps1 -BackendPort 3001 -ExpoPort 8083 -ExpoHost lan
 
 Notas:
 - Si Windows Firewall pregunta, permite acceso a Node.js
-- En el teléfono, EXPO_PUBLIC_API_BASE_URL debe apuntar a la IP de tu PC (ej: http://192.168.0.108:3000)
+- En el teléfono, EXPO_PUBLIC_API_BASE_URL debe apuntar a la IP de tu PC (ej: http://192.168.0.108:3001)

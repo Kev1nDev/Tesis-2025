@@ -1,5 +1,5 @@
 param(
-  [int]$BackendPort = 3000,
+  [int]$BackendPort = 3001,
   [int]$ExpoPort = 8083,
   [ValidateSet('lan','tunnel','localhost')]
   [string]$ExpoHost = 'lan'
@@ -37,9 +37,47 @@ function Find-FreePort {
 
 $resolvedBackendPort = Find-FreePort -StartPort $BackendPort -MaxTries 20
 
+function Get-LanIPv4 {
+  try {
+    $cfg = Get-NetIPConfiguration |
+      Where-Object { $_.NetAdapter.Status -eq 'Up' -and $_.IPv4DefaultGateway -ne $null -and $_.IPv4Address -ne $null } |
+      Select-Object -First 1
+
+    if ($cfg -and $cfg.IPv4Address -and $cfg.IPv4Address.IPAddress) {
+      return $cfg.IPv4Address.IPAddress
+    }
+  } catch {
+    # ignore
+  }
+  return $null
+}
+
+$lanIp = Get-LanIPv4
+
+function Get-LanGatewayIPv4 {
+  try {
+    $cfg = Get-NetIPConfiguration |
+      Where-Object { $_.NetAdapter.Status -eq 'Up' -and $_.IPv4DefaultGateway -ne $null } |
+      Select-Object -First 1
+    if ($cfg -and $cfg.IPv4DefaultGateway -and $cfg.IPv4DefaultGateway.NextHop) {
+      return $cfg.IPv4DefaultGateway.NextHop
+    }
+  } catch {
+    # ignore
+  }
+  return $null
+}
+
+$lanGw = Get-LanGatewayIPv4
+
 Write-Host "Repo: $repoRoot"
-Write-Host "Backend: http://0.0.0.0:$resolvedBackendPort" + $(if ($resolvedBackendPort -ne $BackendPort) { " (puerto $BackendPort ocupado)" } else { "" })
+$backendNote = if ($resolvedBackendPort -ne $BackendPort) { " (puerto $BackendPort ocupado)" } else { "" }
+Write-Host "Backend: http://0.0.0.0:$resolvedBackendPort$backendNote"
 Write-Host "Expo (Metro): port $ExpoPort (host=$ExpoHost)"
+if ($lanIp) {
+  $gwNote = if ($lanGw) { " (gateway $lanGw)" } else { "" }
+  Write-Host "LAN IPv4: $lanIp$gwNote"
+}
 Write-Host "" 
 
 if (Test-Path $mobileEnvPath) {
@@ -48,7 +86,8 @@ if (Test-Path $mobileEnvPath) {
     $currentUrl = $Matches['url'].Trim()
     try {
       $uri = [Uri]$currentUrl
-      $newUrl = "{0}://{1}:{2}" -f $uri.Scheme, $uri.Host, $resolvedBackendPort
+      $newHost = if ($lanIp) { $lanIp } else { $uri.Host }
+      $newUrl = "{0}://{1}:{2}" -f $uri.Scheme, $newHost, $resolvedBackendPort
       if ($newUrl -ne $currentUrl) {
         $updated = $envContent -replace '(?m)^EXPO_PUBLIC_API_BASE_URL=.+$', ("EXPO_PUBLIC_API_BASE_URL=$newUrl")
         Set-Content -LiteralPath $mobileEnvPath -Value $updated -Encoding utf8
@@ -96,3 +135,31 @@ Start-PowerShellWindow -Title 'tesis-mobile (expo)' -Command $mobileCmd
 
 Write-Host "Listo: se abrieron 2 ventanas (backend y Expo)."
 Write-Host "Cierra esas ventanas para detenerlos." 
+
+Write-Host ""
+Write-Host "=== Verificación de red (rápida) ==="
+if (-not $lanIp) {
+  Write-Host "No pude detectar tu IP LAN. Si estás en una red nueva, revisa ipconfig y vuelve a ejecutar." -ForegroundColor Yellow
+} else {
+  Write-Host "Desde el iPhone (Safari) prueba:" 
+  Write-Host "  - http://${lanIp}:${resolvedBackendPort}/health"
+  Write-Host "Si eso NO abre, el iPhone no está en la misma red o hay 'AP/Client Isolation' en el Wi-Fi." -ForegroundColor Yellow
+  if ($ExpoHost -eq 'lan') {
+    Write-Host "Y para Expo Go, el QR debe apuntar a: exp://${lanIp}:${ExpoPort}"
+    Write-Host "Si Expo Go da timeout en LAN, prueba: .\\run-dev.ps1 -ExpoHost tunnel" -ForegroundColor Yellow
+  }
+
+  try {
+    Start-Sleep -Seconds 1
+    $b = Test-NetConnection -ComputerName $lanIp -Port $resolvedBackendPort
+    $m = Test-NetConnection -ComputerName $lanIp -Port $ExpoPort
+    Write-Host "Chequeo local puertos (no garantiza iPhone, pero detecta si está escuchando):"
+    Write-Host "  - Backend ${resolvedBackendPort}: $($b.TcpTestSucceeded)"
+    Write-Host "  - Metro  ${ExpoPort}: $($m.TcpTestSucceeded)"
+    if (-not $b.TcpTestSucceeded) {
+      Write-Host "Nota: si es la primera vez, npm install puede tardar y el backend aún no escucha. Espera 20-60s y vuelve a probar /health." -ForegroundColor Yellow
+    }
+  } catch {
+    # ignore
+  }
+}
