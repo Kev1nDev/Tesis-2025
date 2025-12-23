@@ -1,7 +1,13 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
+const dotenv = require('dotenv');
+
+const { describeWithGemini } = require('./gemini');
 
 const app = express();
+
+dotenv.config({ path: path.join(__dirname, '.env') });
 
 app.use(cors());
 app.use(express.json({ limit: '15mb' }));
@@ -25,7 +31,47 @@ app.get('/health', (_req, res) => {
 });
 
 app.post('/describe', async (req, res) => {
-  const { sensors, mode, imageBase64, audioBase64 } = req.body ?? {};
+  const { sensors, mode, imageBase64, audioBase64, imageMimeType, prompt: userPrompt } = req.body ?? {};
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  const model = process.env.GEMINI_MODEL;
+
+  // If Gemini key exists and we have an image, use Gemini.
+  if (apiKey && typeof imageBase64 === 'string' && imageBase64.length > 0) {
+    try {
+      const r = await describeWithGemini({
+        apiKey,
+        model,
+        mode,
+        imageBase64,
+        imageMimeType,
+        userPrompt,
+      });
+
+      const location = sensors?.location;
+      const locationText =
+        location && typeof location.latitude === 'number' && typeof location.longitude === 'number'
+          ? ` (lat ${location.latitude.toFixed(5)}, lon ${location.longitude.toFixed(5)})`
+          : '';
+
+      // Keep the mobile UI simple: expose a single description string.
+      const description =
+        (r.summary ? `${r.summary}\n\n` : '') +
+        (r.detailed ? `${r.detailed}\n\n` : '') +
+        (r.points_of_interest?.length ? `Puntos de interés:\n- ${r.points_of_interest.join('\n- ')}\n\n` : '') +
+        (r.uncertainties?.length ? `Incertidumbres:\n- ${r.uncertainties.join('\n- ')}\n` : '') +
+        (locationText ? `\nContexto GPS:${locationText}` : '');
+
+      return res.json({
+        description: description.trim(),
+        confidence: typeof r.confidence === 'number' ? r.confidence : undefined,
+        model: { name: r.model, version: 'gemini' },
+      });
+    } catch (e) {
+      console.warn('[describe] Gemini failed, falling back to stub:', e?.message ?? e);
+      // Fall through to stub.
+    }
+  }
 
   const latency = estimateLatencyMs(mode);
   await sleep(latency);
