@@ -1,5 +1,15 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
+let jsonrepairFn = null;
+try {
+  // Optional dependency; improves robustness for "almost JSON" outputs.
+  // Installed via backend/package.json.
+  const jr = require('jsonrepair');
+  jsonrepairFn = typeof jr?.jsonrepair === 'function' ? jr.jsonrepair : null;
+} catch (_) {
+  // ignore
+}
+
 let cachedResolvedModel = null;
 
 function normalizeModelName(name) {
@@ -62,51 +72,111 @@ async function resolveModelName({ apiKey, desiredModel }) {
 }
 
 function buildPrompt({ mode, userPrompt }) {
-  // Prompt compacto para reducir tokens/latencia SIN perder detalle.
-  // (La latencia suele subir con prompts largos y outputs demasiado extensos.)
+  // Volvemos a un prompt más "clásico" (menos reglas) pero optimizado para estabilidad y detalle.
   const policy =
     mode === 'accurate'
-      ? 'Modo: preciso. Si dudas, dilo en uncertainties.'
+      ? 'Prioriza precisión aunque tardes un poco más. Si no estás seguro, dilo en "uncertainties".'
       : mode === 'fast'
-        ? 'Modo: rápido. Sé breve pero correcto; no inventes.'
-        : 'Modo: balanceado. Claro y útil; no inventes.';
+        ? 'Prioriza velocidad, pero no inventes.'
+        : 'Balancea precisión y velocidad. No inventes.';
 
   const base =
-    'Describe la imagen en español. Devuelve SOLO JSON válido (sin markdown) con claves: ' +
-    'summary, detailed, points_of_interest, uncertainties, confidence.\n' +
-    'Formato: summary 2-3 frases; detailed 6-10 frases (detallado, sin exagerar); ' +
-    'points_of_interest 5-8 ítems; uncertainties vacío si no hay dudas; confidence en [0,1].\n';
+    'Devuelve SOLO un JSON válido (sin markdown, sin texto extra) con este esquema:\n' +
+    '{\n' +
+    '  "summary": string,\n' +
+    '  "detailed": string,\n' +
+    '  "points_of_interest": string[],\n' +
+    '  "uncertainties": string[],\n' +
+    '  "confidence": number\n' +
+    '}\n\n' +
+    'Reglas:\n' +
+    '- confidence debe estar entre 0 y 1\n' +
+    '- summary debe ser 2-3 frases\n' +
+    '- detailed debe ser detallado (6-10 frases) y describir el entorno, no solo el objeto principal\n' +
+    '- points_of_interest: 5-8 items\n' +
+    '- uncertainties: lista vacía si estás seguro\n' +
+    '- Incluye contexto del entorno: disposición del espacio, objetos secundarios, iluminación/ambiente, texto visible y posibles riesgos/obstáculos\n' +
+    '- Si usas comillas dobles dentro de strings, escápalas con \\"\n\n';
 
   const extra = userPrompt?.trim() ? `Extra: ${userPrompt.trim()}\n` : '';
-  return `${base}${policy}\n${extra}`;
+  const task = 'Tarea: describe claramente la imagen y el entorno. Incluye puntos de interés y posibles incertidumbres.';
+  return `${base}${policy}\n${extra}${task}`;
 }
 
 function tryParseJson(text) {
   function stripCodeFences(input) {
-    const s = String(input ?? '');
+    let s = String(input ?? '').trim();
+
     // If the model returns fenced blocks (```json ... ```), prefer the first fenced block body.
     const fenceMatch = s.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
     if (fenceMatch && fenceMatch[1]) return fenceMatch[1];
+
+    // Handle incomplete fences (opening ```json but missing closing ```).
+    if (s.startsWith('```')) {
+      // Drop the first line (``` or ```json)
+      const nl = s.indexOf('\n');
+      s = nl >= 0 ? s.slice(nl + 1) : s.replace(/^```(?:json)?/i, '');
+      s = s.replace(/```\s*$/i, '');
+    }
+
+    return s;
+  }
+
+  function sanitizeJsonish(input) {
+    let s = String(input ?? '').trim();
+
+    // Some models output a leading language tag without fences: "json\n{...}"
+    s = s.replace(/^\s*json\s*[\r\n]+/i, '');
+
+    // Replace smart quotes.
+    s = s
+      .replace(/[\u201C\u201D\u201E\u2033]/g, '"')
+      .replace(/[\u2018\u2019\u2032]/g, "'");
+
+    // Fix common invalid key quoting: ""summary"": -> "summary":
+    s = s.replace(/""\s*([A-Za-z0-9_]+)\s*""\s*:/g, '"$1":');
+
     return s;
   }
 
   // Gemini a veces envía texto extra o envuelve el JSON en markdown. Lo limpiamos.
-  const cleaned = stripCodeFences(text).trim().replace(/^`+/, '').replace(/`+$/, '').trim();
+  const cleaned0 = stripCodeFences(text).trim().replace(/^`+/, '').replace(/`+$/, '').trim();
+  const cleaned = sanitizeJsonish(cleaned0);
 
   // Intento 1: extraer el primer objeto JSON por llaves.
   const firstBrace = cleaned.indexOf('{');
   const lastBrace = cleaned.lastIndexOf('}');
   if (firstBrace >= 0 && lastBrace > firstBrace) {
-    const slice = cleaned.slice(firstBrace, lastBrace + 1);
+    const slice = sanitizeJsonish(cleaned.slice(firstBrace, lastBrace + 1));
     try {
       return JSON.parse(slice);
     } catch (_) {
-      // fallthrough
+      // Try repair for common issues like unterminated strings / raw newlines.
+      if (jsonrepairFn) {
+        try {
+          return JSON.parse(jsonrepairFn(slice));
+        } catch (_) {
+          // fallthrough
+        }
+      }
     }
   }
 
   // Intento 2: parse directo (por si ya es JSON puro).
-  return JSON.parse(cleaned);
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {
+    // Último intento: sanitizar de nuevo / reparar y reintentar.
+    const retry = sanitizeJsonish(cleaned);
+    try {
+      return JSON.parse(retry);
+    } catch (_) {
+      if (jsonrepairFn) {
+        return JSON.parse(jsonrepairFn(retry));
+      }
+      throw e;
+    }
+  }
 }
 
 async function describeWithGemini({ apiKey, model, mode, imageBase64, imageMimeType, userPrompt }) {
@@ -116,17 +186,26 @@ async function describeWithGemini({ apiKey, model, mode, imageBase64, imageMimeT
   const genAI = new GoogleGenerativeAI(apiKey);
   const requestedModelName = normalizeModelName(model || 'gemini-2.0-flash');
   const maxOutputTokensEnv = Number(process.env.GEMINI_MAX_OUTPUT_TOKENS ?? NaN);
-  // Defaults conservadores: permiten "detailed" sin generar biblias.
-  const defaultMaxOutputTokens = mode === 'fast' ? 512 : mode === 'accurate' ? 1100 : 900;
+  // Defaults: suficiente para "detailed" sin exagerar.
+  const defaultMaxOutputTokens = mode === 'fast' ? 700 : mode === 'accurate' ? 1400 : 1100;
   const maxOutputTokens = Number.isFinite(maxOutputTokensEnv) && maxOutputTokensEnv > 0 ? maxOutputTokensEnv : defaultMaxOutputTokens;
 
-  let geminiModel = genAI.getGenerativeModel({
-    model: requestedModelName,
-    generationConfig: {
+  function createModel(modelName, { useJsonMimeType }) {
+    const generationConfig = {
       temperature: 0.2,
       maxOutputTokens,
-    },
-  });
+    };
+    if (useJsonMimeType) {
+      // Cuando el modelo lo soporta, esto reduce drásticamente JSON inválido/truncado.
+      generationConfig.responseMimeType = 'application/json';
+    }
+    return genAI.getGenerativeModel({
+      model: modelName,
+      generationConfig,
+    });
+  }
+
+  let geminiModel = createModel(requestedModelName, { useJsonMimeType: true });
 
   const prompt = buildPrompt({ mode, userPrompt });
 
@@ -158,23 +237,28 @@ async function describeWithGemini({ apiKey, model, mode, imageBase64, imageMimeT
     result = await runGenerate();
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+
+    // Si responseMimeType no es soportado por ese modelo, reintenta sin JSON mime type una vez.
+    if (/responsemimetype|response_mime_type|response mime type|unknown field|invalid/i.test(msg)) {
+      try {
+        geminiModel = createModel(normalizeModelName(model || requestedModelName) || requestedModelName, { useJsonMimeType: false });
+        result = await runGenerate();
+      } catch (_) {
+        // keep handling below
+      }
+    }
+
     // If model name is invalid for this API version, auto-discover a valid one and retry once.
     if (/404 Not Found/i.test(msg) && /ListModels|list models|models\//i.test(msg)) {
       const fallbackModelName = await resolveModelName({ apiKey, desiredModel: requestedModelName });
       if (fallbackModelName && fallbackModelName !== requestedModelName) {
-        geminiModel = genAI.getGenerativeModel({
-          model: fallbackModelName,
-          generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens,
-          },
-        });
+        geminiModel = createModel(fallbackModelName, { useJsonMimeType: true });
         result = await runGenerate();
       } else {
         throw e;
       }
     } else {
-      throw e;
+      if (!result) throw e;
     }
   }
   const genT1 = process.hrtime.bigint();
