@@ -1,10 +1,13 @@
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
+import  ReadingScreen  from './src/screens/ReadingScreen';
+import DescribeCameraScreen from './src/screens/ShortDescribeScreen';
 import { HistoryScreen } from './src/screens/HistoryScreen';
 import { InDevelopmentScreen } from './src/screens/InDevelopmentScreen';
 import { BottomTabBar } from './src/ui/BottomTabBar';
 import { SwipePager } from './src/ui/SwipePager';
+import React from 'react';
 
 export default function App() {
   const [index, setIndex] = useState(0);
@@ -17,9 +20,9 @@ export default function App() {
   ];
 
   const screens = [
-    <InDevelopmentScreen key="lectura" />,
+    <ReadingScreen key="lectura" />,
     <HistoryScreen key="detallada" />,
-    <InDevelopmentScreen key="rapida" />,
+    <DescribeCameraScreen key="rapida" />,
     <InDevelopmentScreen key="caminata" />,
   ];
 

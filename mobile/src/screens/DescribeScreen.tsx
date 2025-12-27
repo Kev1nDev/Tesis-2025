@@ -6,6 +6,7 @@ import { Audio } from 'expo-av';
 import { assertEnv } from '../config/env';
 import { describeEnvironment } from '../services/descriptionApi';
 import type { DescribeRequest } from '../types/description';
+import React from 'react';
 
 type DescribeMode = 'balanced' | 'accurate' | 'fast';
 
