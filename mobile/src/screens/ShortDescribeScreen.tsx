@@ -1,15 +1,6 @@
 import React, { useRef, useState } from 'react';
-import {
-  Alert,
-  ActivityIndicator,
-  Image,
-  Pressable,
-  StyleSheet,
-  Text,
-  Vibration,
-  View,
-} from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
+import { Pressable, StyleSheet, ActivityIndicator, Vibration } from 'react-native';
+import { CameraView } from 'expo-camera';
 import * as Speech from 'expo-speech';
 
 const BACKEND_URL_CAPTION = 'http://18.219.82.255:7861/caption';
@@ -19,238 +10,108 @@ const SPEECH_PRIORITY_TEXT = 100;
 const SPEECH_PRIORITY_ERROR = 200;
 
 export default function DescribeCameraScreen() {
-  const [imageUri, setImageUri] = useState<string | null>(null);
-  const [statusText, setStatusText] = useState<string>('');
-  const [loading, setLoading] = useState(false);
+  const cameraRef = useRef<CameraView>(null);
   const lastSpokenPriority = useRef(0);
+  const [busy, setBusy] = useState(false);
 
-  const log = (label: string, data?: any) => {
-    console.log(`📷 [DescribeCamera] ${label}`, data ?? '');
-  };
+  function speak(text: string, priority = SPEECH_PRIORITY_STATUS) {
+    console.log('🗣️ SPEAK:', text, 'PRIORITY:', priority);
+    if (!text || priority < lastSpokenPriority.current) return;
 
-  async function takePhotoAndSend() {
-    log('START capture flow');
+    Speech.stop();
+    lastSpokenPriority.current = priority;
 
-    try {
-      log('Requesting camera permission…');
-      const perm = await ImagePicker.requestCameraPermissionsAsync();
-      log('Camera permission result', perm);
-
-      if (!perm.granted) {
-        speak('Permiso de cámara denegado', SPEECH_PRIORITY_ERROR);
-        Alert.alert('Permiso denegado', 'No se otorgó permiso para usar la cámara.');
-        return;
-      }
-
-      log('Launching camera…');
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.9,
-      });
-
-      log('Camera result', result);
-
-      if (result.canceled || !result.assets?.length) {
-        log('User cancelled capture');
-        return;
-      }
-
-      const uri = result.assets[0].uri;
-      log('Captured image URI', uri);
-
-      setImageUri(uri);
-      vibrateWithPattern([0, 80]);
-
-      setStatusText('Enviando imagen al servidor…');
-      setLoading(true);
-
-      log('Calling backend…');
-      const caption = await sendImageToBackend(uri);
-
-      log('Backend returned', caption);
-
-      setLoading(false);
-
-      if (caption == null) {
-        setStatusText('Sin respuesta del servidor');
-        speak('Sin respuesta del servidor', SPEECH_PRIORITY_STATUS);
-        return;
-      }
-
-      if (caption === '') {
-        setStatusText('No se detectó descripción');
-        speak('No se detectó descripción', SPEECH_PRIORITY_STATUS);
-        return;
-      }
-
-      log('Translating caption…');
-      const translated = await translateToSpanish(caption);
-      log('Translated text', translated);
-
-      const finalText = translated?.trim() ? translated : caption;
-      setStatusText(finalText);
-      speak(finalText, SPEECH_PRIORITY_TEXT);
-    } catch (e: any) {
-      setLoading(false);
-      log('❌ CRASH in takePhotoAndSend', e);
-      const msg = e?.message ?? String(e);
-      setStatusText('Error: ' + msg);
-      speak('Error enviando imagen', SPEECH_PRIORITY_ERROR);
-      Alert.alert('Error', msg);
-    }
+    Speech.speak(text, { language: 'es', rate: 0.95, pitch: 1 });
   }
 
-  async function sendImageToBackend(uri: string): Promise<string | null> {
-    log('sendImageToBackend() begin');
-    log('Image URI', uri);
+  function vibrate() {
+    console.log('📳 Vibrating device');
+    Vibration.vibrate(80);
+  }
+
+  async function describeScene() {
+    if (!cameraRef.current || busy) {
+      console.log('⛔ Ignored tap — busy or no camera');
+      return;
+    }
+
+    setBusy(true);
+    console.log('📷 START describeScene()');
 
     try {
-      log('Fetching local image as blob…');
-      const fileResp = await fetch(uri);
-      log('Local file fetch status', fileResp.status);
+      vibrate();
+      speak('Capturando imagen');
 
-      const blob = await fileResp.blob();
-      log('Blob size (bytes)', blob.size);
+      const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.8 });
+      console.log('📷 Photo captured', { uri: photo.uri, base64Length: photo.base64?.length });
+
+      speak('Analizando escena');
 
       const form = new FormData();
-      form.append('file', blob as any, 'capture.jpg');
+      form.append('file', {
+        uri: photo.uri,
+        name: 'capture.jpg',
+        type: 'image/jpeg',
+      } as any);
 
-      log('POST →', BACKEND_URL_CAPTION);
-
-      const resp = await fetch(BACKEND_URL_CAPTION, {
-        method: 'POST',
-        body: form,
-        headers: { Accept: 'application/json' },
-      });
-
-      log('HTTP status', resp.status);
-
-      const txt = await resp.text();
-      log('Raw backend response', txt);
+      console.log('🚀 Sending image to backend...');
+      const resp = await fetch(BACKEND_URL_CAPTION, { method: 'POST', body: form });
+      let caption = await resp.text();
+      console.log('📤 Backend response status:', resp.status);
+      console.log('📤 Backend raw text:', caption.slice(0, 120));
 
       if (!resp.ok) {
-        log('❌ Backend returned error', { code: resp.status, body: txt });
-        Alert.alert('Backend error', String(resp.status));
-        return null;
-      }
-
-      if (!txt) {
-        log('⚠️ Empty backend body');
-        return null;
+        console.warn('❌ Backend error', resp.status, caption);
+        speak('Error del servidor', SPEECH_PRIORITY_ERROR);
+        return;
       }
 
       try {
-        const obj = JSON.parse(txt);
-        const caption = obj.caption ?? obj.text ?? obj.message ?? txt;
-        log('Parsed JSON caption', caption);
-
-        const low = String(caption).trim().toLowerCase();
-        if (low.includes('no hay') || low.includes('no caption') || low.includes('no text')) {
-          log('Detected NO TEXT signal');
-          return '';
-        }
-
-        return String(caption);
-      } catch (e) {
-        log('Response is not JSON, using raw text');
-        return txt;
+        const obj = JSON.parse(caption);
+        caption = obj.caption ?? obj.text ?? obj.message ?? caption;
+        console.log('📑 Parsed caption:', caption);
+      } catch {
+        console.log('⚠️ Backend response is not JSON, using raw text');
       }
+
+      const clean = caption.trim().toLowerCase();
+      if (clean.includes('no hay') || clean.includes('no text') || clean === '') {
+        speak('No se detectó descripción', SPEECH_PRIORITY_STATUS);
+      } else {
+        speak(caption, SPEECH_PRIORITY_TEXT);
+      }
+
     } catch (e) {
-      log('❌ Network / fetch error', e);
-      Alert.alert('Error', 'No se pudo conectar con el servidor');
-      return null;
+      console.error('❌ DESCRIBE ERROR:', e);
+      speak('Error analizando la escena', SPEECH_PRIORITY_ERROR);
+    } finally {
+      console.log('📷 END describeScene()');
+      setBusy(false);
     }
-  }
-
-  async function translateToSpanish(text: string): Promise<string> {
-    log('translateToSpanish()', text);
-
-    try {
-      const url =
-        'https://translate.googleapis.com/translate_a/single' +
-        '?client=gtx&sl=en&tl=es&dt=t&q=' +
-        encodeURIComponent(text);
-
-      log('Calling Google Translate…');
-      const resp = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      log('Translate status', resp.status);
-
-      const body = await resp.text();
-      log('Translate raw body', body.slice(0, 120));
-
-      const pattern = /\[\[\[\"(.*?)\",/;
-      const match = pattern.exec(body);
-
-      if (match && match[1]) return match[1];
-      return text;
-    } catch (e) {
-      log('⚠️ translateToSpanish failed', e);
-      return text;
-    }
-  }
-
-  function speak(text: string, priority = SPEECH_PRIORITY_STATUS) {
-    if (!text || text.trim() === '') return;
-
-    if (priority >= lastSpokenPriority.current) {
-      Speech.stop();
-      lastSpokenPriority.current = priority;
-
-      setTimeout(() => {
-        Speech.speak(text, {
-          language: 'es',
-          rate: 0.95,
-          pitch: 1.0,
-        });
-      }, 50);
-    }
-  }
-
-  function vibrateWithPattern(pattern: number[] = [0, 80]) {
-    Vibration.vibrate(pattern);
   }
 
   return (
-    <View style={styles.container}>
-      <Pressable
-        style={styles.touchOverlay}
-        onPress={takePhotoAndSend}
-        onLongPress={() =>
-          speak('Mantén presionado para ayuda. Presiona para describir la escena.', SPEECH_PRIORITY_STATUS)
-        }
-      >
-        <Text style={styles.helpText}>Toca para describir</Text>
-      </Pressable>
-
-      <View style={styles.resultArea}>
-        {loading && <ActivityIndicator size="large" />}
-        {imageUri && <Image source={{ uri: imageUri }} style={styles.preview} />}
-        <Text style={styles.status}>{statusText}</Text>
-      </View>
-    </View>
+    <Pressable
+      style={styles.fullscreen}
+      onPress={describeScene}
+      onLongPress={() =>
+        speak('Presiona la pantalla para describir la escena', SPEECH_PRIORITY_STATUS)
+      }
+    >
+      <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
+      {busy && <ActivityIndicator size="large" style={styles.spinner} />}
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  touchOverlay: {
+  fullscreen: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: 'black',
   },
-  helpText: { fontSize: 18, fontWeight: '600' },
-  resultArea: {
-    padding: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
+  spinner: {
+    position: 'absolute',
+    top: '50%',
+    alignSelf: 'center',
   },
-  preview: {
-    width: '100%',
-    height: 220,
-    resizeMode: 'cover',
-    marginBottom: 8,
-    borderRadius: 6,
-  },
-  status: { fontSize: 14, color: '#222' },
 });

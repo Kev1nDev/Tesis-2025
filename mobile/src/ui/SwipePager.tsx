@@ -1,3 +1,4 @@
+import React from 'react';
 import { useMemo, useRef } from 'react';
 import { PanResponder, type GestureResponderEvent, type PanResponderGestureState, StyleSheet, View } from 'react-native';
 
@@ -25,7 +26,6 @@ export function SwipePager(props: Props) {
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_evt: GestureResponderEvent, gestureState: PanResponderGestureState) => {
-        // Horizontal swipe intent
         return Math.abs(gestureState.dx) > 12 && Math.abs(gestureState.dy) < 18;
       },
       onPanResponderRelease: (_evt, gestureState) => {

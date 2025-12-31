@@ -1,13 +1,15 @@
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import  ReadingScreen  from './src/screens/ReadingScreen';
+import ReadingScreen from './src/screens/ReadingScreen';
 import DescribeCameraScreen from './src/screens/ShortDescribeScreen';
-import { HistoryScreen } from './src/screens/HistoryScreen';
+//import { HistoryScreen } from './src/screens/HistoryScreen';
 import { InDevelopmentScreen } from './src/screens/InDevelopmentScreen';
 import { BottomTabBar } from './src/ui/BottomTabBar';
 import { SwipePager } from './src/ui/SwipePager';
 import React from 'react';
+import DescribeScreen from './src/screens/DescribeScreen';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 export default function App() {
   const [index, setIndex] = useState(0);
@@ -21,21 +23,25 @@ export default function App() {
 
   const screens = [
     <ReadingScreen key="lectura" />,
-    <HistoryScreen key="detallada" />,
+    <DescribeScreen key="detallada" />,
     <DescribeCameraScreen key="rapida" />,
     <InDevelopmentScreen key="caminata" />,
   ];
 
   return (
-    <View style={styles.root}>
-      <View style={styles.content}>
+    <SafeAreaProvider>
+      <View style={styles.root}>
+        <View style={styles.content}>
         <SwipePager index={index} count={screens.length} onIndexChange={setIndex}>
           {screens[index]}
         </SwipePager>
+        </View>
+
+        <BottomTabBar tabs={tabs} activeIndex={index} onChange={setIndex} />
+
+        <StatusBar style="auto" />
       </View>
-      <BottomTabBar tabs={tabs} activeIndex={index} onChange={setIndex} />
-      <StatusBar style="auto" />
-    </View>
+    </SafeAreaProvider>
   );
 }
 
