@@ -7,8 +7,14 @@ import {
 } from 'react-native';
 import { CameraView } from 'expo-camera';
 import * as Speech from 'expo-speech';
+import { assertEnv, ENV } from '../config/env';
 
-const BACKEND_URL_BOOK = 'http://18.219.82.255:7861/book';
+function getEndpoint(pathname: string): string {
+  assertEnv();
+  const base = ENV.apiBaseUrl.replace(/\/+$/, '');
+  const path = pathname.startsWith('/') ? pathname : `/${pathname}`;
+  return `${base}${path}`;
+}
 
 const SPEECH_PRIORITY_STATUS = 30;
 const SPEECH_PRIORITY_TEXT = 100;
@@ -58,7 +64,7 @@ export default function ReadingScreen() {
       console.log('📷 Photo captured', { uri: photo.uri, base64Length: photo.base64?.length });
 
       speak('Leyendo texto');
-
+      const url = getEndpoint('/book');
       const form = new FormData();
       form.append('file', {
         uri: photo.uri,
@@ -67,7 +73,7 @@ export default function ReadingScreen() {
       } as any);
 
       console.log('🚀 Sending image to backend...');
-      const resp = await fetch(BACKEND_URL_BOOK, {
+      const resp = await fetch(url, {
         method: 'POST',
         body: form,
       });

@@ -2,8 +2,14 @@ import React, { useRef, useState } from 'react';
 import { Pressable, StyleSheet, ActivityIndicator, Vibration } from 'react-native';
 import { CameraView } from 'expo-camera';
 import * as Speech from 'expo-speech';
+import { assertEnv, ENV } from '../config/env';
 
-const BACKEND_URL_CAPTION = 'http://18.219.82.255:7861/caption';
+function getEndpoint(pathname: string): string {
+  assertEnv();
+  const base = ENV.apiBaseUrl.replace(/\/+$/, '');
+  const path = pathname.startsWith('/') ? pathname : `/${pathname}`;
+  return `${base}${path}`;
+}
 
 const SPEECH_PRIORITY_STATUS = 30;
 const SPEECH_PRIORITY_TEXT = 100;
@@ -41,6 +47,7 @@ export default function DescribeCameraScreen() {
     try {
       vibrate();
       speak('Capturando imagen');
+      const url = getEndpoint('/caption');
 
       const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.8 });
       console.log('📷 Photo captured', { uri: photo.uri, base64Length: photo.base64?.length });
@@ -55,7 +62,11 @@ export default function DescribeCameraScreen() {
       } as any);
 
       console.log('🚀 Sending image to backend...');
-      const resp = await fetch(BACKEND_URL_CAPTION, { method: 'POST', body: form });
+      const resp = await fetch(url, {
+        method: 'POST',
+        body: form,
+      });
+
       let caption = await resp.text();
       console.log('📤 Backend response status:', resp.status);
       console.log('📤 Backend raw text:', caption.slice(0, 120));
