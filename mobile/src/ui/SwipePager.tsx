@@ -71,7 +71,7 @@ const styles = StyleSheet.create({
   },
   dots: {
     position: 'absolute',
-    bottom: 10,
+    bottom: 88,
     left: 0,
     right: 0,
     flexDirection: 'row',

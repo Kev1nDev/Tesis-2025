@@ -12,6 +12,10 @@ export default function DescribeScreen() {
   const [camPermission, requestCamPermission] = useCameraPermissions();
   const [busy, setBusy] = useState(false);
   const cameraRef = useRef<CameraView>(null);
+  const SPEECH_PRIORITY_STATUS = 30;
+  const SPEECH_PRIORITY_TEXT = 100;
+  const SPEECH_PRIORITY_ERROR = 200;
+  const lastSpokenPriority = useRef(0);
 
   useEffect(() => {
     (async () => {
@@ -22,20 +26,21 @@ export default function DescribeScreen() {
         await Audio.requestPermissionsAsync();
         await Location.requestForegroundPermissionsAsync();
 
-        speak('Cámara lista. Toque la pantalla para describir su entorno.');
+        //speak('Cámara lista. Toque la pantalla para describir su entorno.');
       } catch (e) {
         speak('Error al iniciar la aplicación.');
       }
     })();
   }, []);
 
-  function speak(text: string) {
+  function speak(text: string, priority = SPEECH_PRIORITY_STATUS) {
+    console.log('🗣️ SPEAK:', text, 'PRIORITY:', priority);
+    if (!text || priority < lastSpokenPriority.current) return;
+
     Speech.stop();
-    Speech.speak(text, {
-      language: 'es-ES',
-      rate: 0.95,
-      pitch: 1.0,
-    });
+    lastSpokenPriority.current = priority;
+
+    Speech.speak(text, { language: 'es', rate: 0.95, pitch: 1 });
   }
 
   async function describe() {
@@ -78,7 +83,10 @@ export default function DescribeScreen() {
   }
 
   return (
-    <Pressable style={styles.fullscreen} onPress={describe}>
+    <Pressable style={styles.fullscreen} onPress={describe}       
+    onLongPress={() =>
+        speak('Presiona la pantalla para describir la escena a detalle', SPEECH_PRIORITY_STATUS)
+      }>
       <CameraView
         ref={cameraRef}
         style={StyleSheet.absoluteFill}
