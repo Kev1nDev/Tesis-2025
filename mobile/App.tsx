@@ -1,5 +1,8 @@
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
+import * as Speech from "expo-speech";
+import { AppState } from "react-native";
+import { useEffect, useRef } from "react";
 import { StyleSheet, View } from 'react-native';
 import ReadingScreen from './src/screens/ReadingScreen';
 import DescribeCameraScreen from './src/screens/ShortDescribeScreen';
@@ -13,6 +16,33 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 export default function App() {
   const [index, setIndex] = useState(0);
+
+  const appState = useRef(AppState.currentState);
+  const hasWelcomed = useRef(false);
+
+  useEffect(() => {
+    const speakWelcome = () => {
+      if (hasWelcomed.current) return;
+
+      hasWelcomed.current = true;
+
+      Speech.stop();
+      Speech.speak("Bienvenido a la App de Descripción del Entorno", {
+        language: "es-ES",
+        rate: 0.95,
+      });
+    };
+
+    // Se ejecuta solo al arranque real de la app
+    speakWelcome();
+
+    const subscription = AppState.addEventListener("change", (nextAppState) => {
+      // Si vuelve desde background → NO hablar
+      appState.current = nextAppState;
+    });
+
+    return () => subscription.remove();
+  }, []);
 
   const tabs = [
     { key: 'lectura', label: 'Lectura' },

@@ -8,6 +8,7 @@ import {
   PanResponder,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as Speech from "expo-speech";
 
 export type BottomTab = {
   key: string;
@@ -36,11 +37,23 @@ export function BottomTabBar({ tabs, activeIndex, onChange }: Props) {
     tabsLenRef.current = tabs.length;
   }, [tabs.length]);
 
+  useEffect(() => {
+    const label = tabs[activeIndex]?.label;
+    if (!label) return;
+
+    Speech.stop(); 
+    Speech.speak(label, {
+      language: "es-ES",
+      rate: 0.95,
+      pitch: 1.0,
+    });
+  }, [activeIndex]);
+
   const panX = useRef(new Animated.Value(0)).current;
 
   const panResponder = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_: any, gestureState: { dx: any; dy: any }) => {
+      onMoveShouldSetPanResponder: (_: any, gestureState: { dx: number; dy: number }) => {
         return (
           Math.abs(gestureState.dx) > Math.abs(gestureState.dy) &&
           Math.abs(gestureState.dx) > 5
@@ -50,7 +63,7 @@ export function BottomTabBar({ tabs, activeIndex, onChange }: Props) {
         [null, { dx: panX }],
         { useNativeDriver: false }
       ),
-      onPanResponderRelease: (_: any, gestureState: { dx: any }) => {
+      onPanResponderRelease: (_: any, gestureState: { dx: number }) => {
         const dx = gestureState.dx;
         const prevIndex = activeIndexRef.current;
         const last = tabsLenRef.current - 1;
@@ -85,10 +98,7 @@ export function BottomTabBar({ tabs, activeIndex, onChange }: Props) {
           onPress={() => onChange(activeIndex)}
           style={({ pressed }) => [styles.activePill, pressed && styles.pressed]}
         >
-          <Text
-            style={styles.activeLabel}
-            numberOfLines={0.8}
-          >
+          <Text style={styles.activeLabel}>
             {tabs[activeIndex]?.label}
           </Text>
         </Pressable>
@@ -107,28 +117,27 @@ const styles = StyleSheet.create({
 
   floatingBar: {
     backgroundColor: "rgba(20, 20, 25, 0.7)",
-    borderRadius: 50,
+    borderRadius: 80,
     paddingVertical: 8,
-    // Reduce o elimina paddingHorizontal aquí para dar más espacio
-    paddingHorizontal: 8, // mínimo necesario para sombra/estética
+    paddingHorizontal: 8,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.35,
     shadowRadius: 20,
     elevation: 25,
     flexDirection: "row",
-    width: "94%", // más ancho
+    width: "94%",
     alignSelf: "center",
   },
 
   activePill: {
     flex: 1,
-    height: 56,
-    // Elimina paddingHorizontal aquí (deja que el texto use todo el espacio)
-    borderRadius: 36,
+    height: 100,
+    borderRadius: 50,
     backgroundColor: "#0B5FFF",
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 12,
   },
 
   pressed: {
