@@ -4,7 +4,7 @@ import { StyleSheet, View } from 'react-native';
 import ReadingScreen from './src/screens/ReadingScreen';
 import DescribeCameraScreen from './src/screens/ShortDescribeScreen';
 //import { HistoryScreen } from './src/screens/HistoryScreen';
-import { InDevelopmentScreen } from './src/screens/InDevelopmentScreen';
+import GuidedWalkScreen from './src/screens/GuidedWalkScreen';
 import { BottomTabBar } from './src/ui/BottomTabBar';
 import { SwipePager } from './src/ui/SwipePager';
 import React from 'react';
@@ -25,7 +25,7 @@ export default function App() {
     <ReadingScreen key="lectura" />,
     <DescribeScreen key="detallada" />,
     <DescribeCameraScreen key="rapida" />,
-    <InDevelopmentScreen key="caminata" />,
+    <GuidedWalkScreen key="caminata" />,
   ];
 
   return (
