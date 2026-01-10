@@ -117,25 +117,25 @@ En la pestaña **Historial** se implementó el flujo end-to-end:
   - tiempo de backend (`debug.timing.durationMs`, cuando está disponible)
   - confianza y modelo (si la API lo devuelve)
 
-### Backend (Gemini + fallback stub)
+### Backend (Llama 3.2 Vision via Groq + fallback stub)
 
 Endpoints:
 - `GET /health`: prueba de vida
 - `POST /describe`:
-  - Si hay `GEMINI_API_KEY` y llega una imagen, usa **Gemini** server-side y devuelve una descripción estructurada.
-  - Si falta la key, no llega imagen, o Gemini falla/expira, hace fallback a **stub** (simulación) para no romper el pipeline.
+  - Si hay `GROQ_API_KEY` (o `LLAMA_API_KEY`) y llega una imagen, usa **Llama 3.2 Vision** server-side (modelo `llama-3.2-11b-vision-preview`) y devuelve una descripción estructurada.
+  - Si falta la key, no llega imagen, o el modelo falla/expira, hace fallback a **stub** (simulación) para no romper el pipeline.
   - Incluye métricas de tiempo en `debug.timing` (útil para la tesis).
 
-#### Configuración de Gemini (solo backend)
+#### Configuración de Llama (Groq) (solo backend)
 
 1) Crea `backend/.env` (NO se commitea) usando como referencia `backend/.env.example`.
 
 Ejemplo:
 
 ```dotenv
-GEMINI_API_KEY=TU_API_KEY
-GEMINI_MODEL=gemini-2.5-flash
-GEMINI_TIMEOUT_MS=25000
+GROQ_API_KEY=TU_API_KEY
+GROQ_MODEL=llama-3.2-11b-vision-preview
+GROQ_TIMEOUT_MS=25000
 PORT=3001
 ```
 

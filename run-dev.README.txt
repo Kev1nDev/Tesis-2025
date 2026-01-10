@@ -10,6 +10,7 @@ Qué hace:
 - Abre 2 ventanas: backend (Node/Express) y Expo (React Native)
 - Backend en puerto 3001 (configurable). Si 3001 está ocupado, usa 3002/3003/etc.
 - Expo en puerto 8083 para evitar el prompt "Port 8081 is being used".
+	- Expo se inicia en modo Expo Go (QR tipo exp://) para evitar el QR de Development Client.
 
 Parámetros (PowerShell):
 - .\run-dev.ps1 -BackendPort 3001 -ExpoPort 8083 -ExpoHost lan
@@ -17,3 +18,4 @@ Parámetros (PowerShell):
 Notas:
 - Si Windows Firewall pregunta, permite acceso a Node.js
 - En el teléfono, EXPO_PUBLIC_API_BASE_URL debe apuntar a la IP de tu PC (ej: http://192.168.0.108:3001)
+ - Si en iPhone Expo Go se queda en "Opening project" y luego timeout, prueba: .\run-dev.ps1 -ExpoHost tunnel

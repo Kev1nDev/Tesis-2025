@@ -128,7 +128,7 @@ Start-PowerShellWindow -Title 'tesis-backend (dev)' -Command $backendCmd
 $mobileCmd = @(
   "Set-Location -LiteralPath '$mobileDir'",
   "npm install",
-  "npx expo start --clear --port $ExpoPort --host $ExpoHost"
+  "npm run start -- --clear --port $ExpoPort --host $ExpoHost"
 ) -join '; '
 
 Start-PowerShellWindow -Title 'tesis-mobile (expo)' -Command $mobileCmd
