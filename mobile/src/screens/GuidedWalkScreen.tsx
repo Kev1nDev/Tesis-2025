@@ -1,17 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Location from 'expo-location';
 import * as Speech from 'expo-speech';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { assertEnv } from '../config/env';
 import { describeEnvironment } from '../services/descriptionApi';
@@ -32,9 +24,7 @@ export default function GuidedWalkScreen() {
   const [active, setActive] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const [question, setQuestion] = useState('');
   const [status, setStatus] = useState<string>('');
-  const [lastAnswer, setLastAnswer] = useState<string>('');
 
   const lastSpokenAtMs = useRef(0);
 
@@ -111,24 +101,21 @@ export default function GuidedWalkScreen() {
     }
   }
 
-  function buildPrompt(userQuestion?: string) {
-    const q = (userQuestion ?? '').trim();
-    if (!q) return promptBase + 'No hay pregunta del usuario.';
-    return promptBase + `Pregunta del usuario: ${q}`;
+  function buildPrompt() {
+    return promptBase + 'No hay pregunta del usuario.';
   }
 
-  async function captureAndDescribe(opts?: { userQuestion?: string; forceSpeak?: boolean }) {
+  async function captureAndDescribe(opts?: { forceSpeak?: boolean }) {
     if (!cameraRef.current) return;
     if (busyRef.current) return;
 
     busyRef.current = true;
     setBusy(true);
 
-    const userQuestion = opts?.userQuestion?.trim();
     const forceSpeak = Boolean(opts?.forceSpeak);
 
     try {
-      setStatus(userQuestion ? 'Analizando tu pregunta…' : 'Analizando entorno…');
+      setStatus('Analizando entorno…');
 
       const photo = await cameraRef.current.takePictureAsync({
         base64: true,
@@ -145,12 +132,10 @@ export default function GuidedWalkScreen() {
           location: loc ?? undefined,
         },
         mode: 'fast' as const,
-        prompt: buildPrompt(userQuestion),
+        prompt: buildPrompt(),
       };
 
       const result = await describeEnvironment(payload);
-      setLastAnswer(result.description);
-
       if (forceSpeak) speak(result.description);
       else maybeSpeak(result.description);
 
@@ -212,60 +197,52 @@ export default function GuidedWalkScreen() {
     };
   }, []);
 
+  function handleTripleTapStart() {
+    if (active || busy) return;
+    const now = safeNowMs();
+    const delta = now - lastTapAtMs.current;
+    if (delta > 900) {
+      tapCount.current = 0;
+    }
+    tapCount.current += 1;
+    lastTapAtMs.current = now;
+
+    if (tapCount.current >= 3) {
+      tapCount.current = 0;
+      startGuidedMode();
+    }
+  }
+
   const overlayHint = useMemo(() => {
     if (!canUseCamera) return 'Permite la cámara para iniciar.';
-    if (!active) return 'Presiona INICIAR para activar caminata guiada.';
-    return 'Modo activo. Puedes escribir una pregunta y enviar.';
+    if (!active) return 'Toca 3 veces el botón para iniciar caminata.';
+    return 'Modo caminata activo.';
   }, [active, canUseCamera]);
+
+  const insets = useSafeAreaInsets();
+
+  const lastTapAtMs = useRef(0);
+  const tapCount = useRef(0);
 
   return (
     <View style={styles.root}>
       <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
 
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.overlay}
       >
-        <View style={styles.card}>
-          <Text style={styles.title}>Caminata guiada</Text>
-          <Text style={styles.hint}>{overlayHint}</Text>
-
-          {!!status && <Text style={styles.status}>{status}</Text>}
-
-          <View style={styles.row}>
+        <SafeAreaView style={[styles.card, { paddingBottom: Math.max(12, insets.bottom + 8) }]}>
+          <View style={styles.panel}>
             <Pressable
-              style={[styles.button, active ? styles.buttonStop : styles.buttonStart]}
-              onPress={active ? stopGuidedMode : startGuidedMode}
-              disabled={busy}
+              style={[styles.button, styles.buttonFull, active ? styles.buttonActive : null]}
+              onPress={handleTripleTapStart}
+              disabled={busy || active}
             >
-              <Text style={styles.buttonText}>{active ? 'DETENER' : 'INICIAR'}</Text>
-            </Pressable>
-
-            <Pressable
-              style={[styles.button, styles.buttonAsk]}
-              onPress={() => captureAndDescribe({ userQuestion: question, forceSpeak: true })}
-              disabled={!active || busy || !question.trim()}
-            >
-              <Text style={styles.buttonText}>PREGUNTAR</Text>
+              <Text style={styles.buttonText}>{active ? 'Modo activo' : 'Modo Caminata'}</Text>
             </Pressable>
           </View>
-
-          <TextInput
-            value={question}
-            onChangeText={setQuestion}
-            placeholder="Pregunta: ¿qué hay enfrente?"
-            style={styles.input}
-            editable={!busy}
-          />
-
-          {!!lastAnswer && (
-            <Text style={styles.answer} numberOfLines={5}>
-              {lastAnswer}
-            </Text>
-          )}
-
-          {busy && <ActivityIndicator style={styles.spinner} />}
-        </View>
+        </SafeAreaView>
       </KeyboardAvoidingView>
     </View>
   );
@@ -281,64 +258,61 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: 'transparent',
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    gap: 8,
+    borderTopWidth: 0,
+    borderTopColor: 'transparent',
+  },
+  panel: {
+    backgroundColor: 'transparent',
+    borderRadius: 16,
     padding: 12,
     gap: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
   },
   title: {
     fontSize: 16,
     fontWeight: '700',
+    color: '#f8fafc',
   },
   hint: {
     fontSize: 12,
-    opacity: 0.8,
+    opacity: 0.9,
+    color: '#e2e8f0',
   },
   status: {
     fontSize: 12,
     opacity: 0.9,
-  },
-  row: {
-    flexDirection: 'row',
-    gap: 10,
+    color: '#e2e8f0',
   },
   button: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
+    minHeight: 56,
+    paddingVertical: 14,
+    borderRadius: 18,
     alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
-  buttonStart: {
-    backgroundColor: '#111',
+  buttonActive: {
+    backgroundColor: '#0d9488',
   },
-  buttonStop: {
-    backgroundColor: '#111',
-    opacity: 0.85,
-  },
-  buttonAsk: {
-    backgroundColor: '#111',
+  buttonFull: {
+    width: '100%',
+    borderRadius: 32,
+    backgroundColor: '#1d4ed8',
   },
   buttonText: {
     color: 'white',
     fontWeight: '700',
+    fontSize: 16,
+  },
+  buttonSubText: {
+    color: 'white',
+    fontWeight: '600',
     fontSize: 12,
-  },
-  input: {
-    backgroundColor: 'white',
-    borderWidth: 1,
-    borderColor: '#eee',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: Platform.OS === 'ios' ? 12 : 10,
-    fontSize: 14,
-  },
-  answer: {
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  spinner: {
-    alignSelf: 'center',
+    opacity: 0.9,
     marginTop: 4,
   },
 });
