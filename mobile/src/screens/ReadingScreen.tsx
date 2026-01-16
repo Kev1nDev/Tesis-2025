@@ -16,7 +16,7 @@ export default function ReadingScreen() {
   const [busy, setBusy] = useState(false);
 
   function speak(text: string, priority = SPEECH_PRIORITY_STATUS) {
-    console.log('🗣️ SPEAK:', text, 'PRIORITY:', priority);
+    console.log('SPEAK:', text, 'PRIORITY:', priority);
     if (!text || priority < lastSpokenPriority.current) return;
     Speech.stop();
     lastSpokenPriority.current = priority;
@@ -24,18 +24,18 @@ export default function ReadingScreen() {
   }
 
   function vibrate() {
-    console.log('📳 Vibrating device');
+    console.log('Vibrating device');
     Vibration.vibrate(80);
   }
 
   async function describe() {
     if (!cameraRef.current || busy) {
-      console.log('⛔ Ignored tap — busy or no camera');
+      console.log('Ignored tap — busy or no camera');
       return;
     }
 
     setBusy(true);
-    console.log('📷 START describe()');
+    console.log('START describe()');
 
     try {
       assertEnv();
@@ -43,7 +43,7 @@ export default function ReadingScreen() {
       speak('Capturando imagen');
 
       const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.8 });
-      console.log('📷 Photo captured', { uri: photo.uri, base64Length: photo.base64?.length });
+      console.log('Photo captured', { uri: photo.uri, base64Length: photo.base64?.length });
 
       const location = await Location.getCurrentPositionAsync({});
 
@@ -65,10 +65,10 @@ export default function ReadingScreen() {
 
       speak(result.description, SPEECH_PRIORITY_TEXT);
     } catch (e) {
-      console.error('❌ DESCRIBE ERROR:', e);
+      console.error('DESCRIBE ERROR:', e);
       speak('Error describiendo el entorno', SPEECH_PRIORITY_ERROR);
     } finally {
-      console.log('📷 END describe()');
+      console.log('END describe()');
       setBusy(false);
     }
   }

@@ -34,7 +34,7 @@ export default function DescribeScreen() {
   }, []);
 
   function speak(text: string, priority = SPEECH_PRIORITY_STATUS) {
-    console.log('🗣️ SPEAK:', text, 'PRIORITY:', priority);
+    console.log('SPEAK:', text, 'PRIORITY:', priority);
     if (!text || priority < lastSpokenPriority.current) return;
 
     Speech.stop();
