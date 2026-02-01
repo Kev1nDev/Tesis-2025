@@ -2,13 +2,13 @@ import React, { useRef, useState } from 'react';
 import { Pressable, StyleSheet, ActivityIndicator, Vibration } from 'react-native';
 import { CameraView } from 'expo-camera';
 import * as Speech from 'expo-speech';
-import * as Location from 'expo-location';
-import { assertEnv } from '../config/env';
-import { describeEnvironment } from '../services/descriptionApi';
 
 const SPEECH_PRIORITY_STATUS = 30;
 const SPEECH_PRIORITY_TEXT = 100;
 const SPEECH_PRIORITY_ERROR = 200;
+
+// Usamos el endpoint de caption
+const EC2_ENDPOINT = 'http://18.224.161.7:8000/caption';
 
 export default function DescribeCameraScreen() {
   const cameraRef = useRef<CameraView>(null);
@@ -38,37 +38,49 @@ export default function DescribeCameraScreen() {
     console.log('START describeScene()');
 
     try {
-      assertEnv();
       vibrate();
       speak('Capturando imagen');
 
-      const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.8 });
-      console.log('Photo captured', { uri: photo.uri, base64Length: photo.base64?.length });
-
-      const location = await Location.getCurrentPositionAsync({});
-
-      const payload = {
-        imageBase64: photo.base64,
-        imageMimeType: 'image/jpeg',
-        sensors: {
-          capturedAtIso: new Date().toISOString(),
-          location: {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-          },
-        },
-        mode: 'fast' as const,
-      };
+      const photo = await cameraRef.current.takePictureAsync({ 
+        base64: false, // No necesitamos base64, usaremos la URI para el FormData
+        quality: 0.7 
+      });
 
       speak('Analizando escena');
-      const result = await describeEnvironment(payload);
 
-      const desc = result.description?.trim() || '';
-      if (!desc) {
-        speak('No se detectó descripción', SPEECH_PRIORITY_STATUS);
+      // --- Lógica integrada para /caption ---
+      const formData = new FormData();
+      // @ts-ignore
+      formData.append('file', {
+        uri: photo.uri,
+        name: 'scene.jpg',
+        type: 'image/jpeg',
+      });
+
+      const response = await fetch(EC2_ENDPOINT, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server error: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      // El servidor devuelve {"caption": "..."} para este endpoint
+      const desc = result.caption?.trim() || '';
+      
+      if (!desc || desc === "no hay texto") {
+        speak('No se pudo describir la escena', SPEECH_PRIORITY_STATUS);
       } else {
         speak(desc, SPEECH_PRIORITY_TEXT);
       }
+
     } catch (e) {
       console.error('DESCRIBE ERROR:', e);
       speak('Error analizando la escena', SPEECH_PRIORITY_ERROR);
@@ -82,10 +94,16 @@ export default function DescribeCameraScreen() {
     <Pressable
       style={styles.fullscreen}
       onPress={describeScene}
-      onLongPress={() => speak('Presiona la pantalla para describir la escena', SPEECH_PRIORITY_STATUS)}
+      onLongPress={() => speak('Presiona la pantalla para describir lo que hay frente a ti', SPEECH_PRIORITY_STATUS)}
     >
       <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
-      {busy && <ActivityIndicator size="large" style={styles.spinner} />}
+      {busy && (
+        <ActivityIndicator 
+          size="large" 
+          color="#ffffff" 
+          style={styles.spinner} 
+        />
+      )}
     </Pressable>
   );
 }
@@ -99,5 +117,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: '50%',
     alignSelf: 'center',
+    zIndex: 10,
   },
 });

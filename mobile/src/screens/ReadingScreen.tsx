@@ -3,12 +3,13 @@ import { ActivityIndicator, Pressable, StyleSheet, Vibration } from 'react-nativ
 import { CameraView } from 'expo-camera';
 import * as Speech from 'expo-speech';
 import * as Location from 'expo-location';
-import { assertEnv } from '../config/env';
-import { describeEnvironment } from '../services/descriptionApi';
 
 const SPEECH_PRIORITY_STATUS = 30;
 const SPEECH_PRIORITY_TEXT = 100;
 const SPEECH_PRIORITY_ERROR = 200;
+
+// Reemplaza con la IP de tu instancia de EC2
+const EC2_ENDPOINT = 'http://18.224.161.7:8000/book';
 
 export default function ReadingScreen() {
   const cameraRef = useRef<CameraView>(null);
@@ -35,40 +36,52 @@ export default function ReadingScreen() {
     }
 
     setBusy(true);
-    console.log('START describe()');
+    console.log('START OCR Process');
 
     try {
-      assertEnv();
       vibrate();
       speak('Capturando imagen');
 
-      const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.8 });
-      console.log('Photo captured', { uri: photo.uri, base64Length: photo.base64?.length });
+      const photo = await cameraRef.current.takePictureAsync({ 
+        base64: true, 
+        quality: 0.8 
+      });
 
-      const location = await Location.getCurrentPositionAsync({});
+      speak('Procesando texto');
 
-      const payload = {
-        imageBase64: photo.base64,
-        imageMimeType: 'image/jpeg',
-        sensors: {
-          capturedAtIso: new Date().toISOString(),
-          location: {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-          },
+      // --- Lógica del endpoint /book integrada ---
+      const formData = new FormData();
+      // @ts-ignore
+      formData.append('file', {
+        uri: photo.uri,
+        name: 'photo.jpg',
+        type: 'image/jpeg',
+      });
+
+      const response = await fetch(EC2_ENDPOINT, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'multipart/form-data',
         },
-        mode: 'balanced' as const,
-      };
+      });
 
-      speak('Analizando el entorno');
-      const result = await describeEnvironment(payload);
+      if (!response.ok) {
+        throw new Error(`Server error: ${response.status}`);
+      }
 
-      speak(result.description, SPEECH_PRIORITY_TEXT);
+      const result = await response.json();
+      
+      // result.text es lo que devuelve tu script de Python
+      const textToSpeak = result.text || 'No se detectó texto';
+      speak(textToSpeak, SPEECH_PRIORITY_TEXT);
+
     } catch (e) {
-      console.error('DESCRIBE ERROR:', e);
-      speak('Error describiendo el entorno', SPEECH_PRIORITY_ERROR);
+      console.error('ERROR EN /BOOK:', e);
+      speak('Error al conectar con el servidor de lectura', SPEECH_PRIORITY_ERROR);
     } finally {
-      console.log('END describe()');
+      console.log('END OCR Process');
       setBusy(false);
     }
   }
@@ -77,10 +90,16 @@ export default function ReadingScreen() {
     <Pressable
       style={styles.fullscreen}
       onPress={describe}
-      onLongPress={() => speak('Presiona la pantalla para describir el entorno', SPEECH_PRIORITY_STATUS)}
+      onLongPress={() => speak('Presiona una vez para leer el texto frente a ti', SPEECH_PRIORITY_STATUS)}
     >
       <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
-      {busy && <ActivityIndicator size="large" style={styles.spinner} />}
+      {busy && (
+        <ActivityIndicator 
+          size="large" 
+          color="#ffffff" 
+          style={styles.spinner} 
+        />
+      )}
     </Pressable>
   );
 }
@@ -94,5 +113,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: '50%',
     alignSelf: 'center',
+    zIndex: 10,
   },
 });
