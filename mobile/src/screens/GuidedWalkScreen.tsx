@@ -1,243 +1,107 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Platform,
-  Pressable,
-  StyleSheet,
-  View,
-  Vibration,
-} from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, View, Vibration, Platform } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import * as Location from "expo-location";
 import * as Speech from "expo-speech";
 
-import { assertEnv } from "../config/env";
-import { describeEnvironment } from "../services/descriptionApi";
+// Usamos la misma IP que ya te funciona en /book
+const WALK_ENDPOINT = "http://18.224.161.7:8000/walk";
 
-type AiResult = {
-  type: "danger" | "warning" | "info" | "nothing";
-  message: string;
-};
-
-export default function CognitiveMapScreen() {
+export default function WalkModeScreen() {
   const cameraRef = useRef<CameraView | null>(null);
   const [camPermission, requestCamPermission] = useCameraPermissions();
-
   const [active, setActive] = useState(false);
-
-  const busyRef = useRef(false);
-  const speakingRef = useRef(false);
-
+  const [busy, setBusy] = useState(false); // Usamos estado como en ReadingScreen
+  
   const lastMessageRef = useRef<string | null>(null);
-
-  const latestLocation = useRef<Location.LocationObject | null>(null);
-  const headingRef = useRef<number | null>(null);
-
-  const locationSub = useRef<Location.LocationSubscription | null>(null);
-  const headingSub = useRef<any>(null);
-
-  const promptBase = useMemo(() => {
-    return `
-Eres un asistente de orientación para una persona con discapacidad visual.
-
-Asume que el centro de la imagen representa la dirección de avance del usuario.
-Describe SOLO lo que afecta su movimiento inmediato (1–3 metros).
-
-Prioriza:
-- obstáculos
-- personas cercanas
-- bordillos
-- puertas
-- postes
-
-Usa frases MUY cortas.
-No describas objetos lejanos.
-No menciones latitud ni longitud.
-
-Responde SOLO en JSON:
-{
-  "type": "danger | warning | info | nothing",
-  "message": "frase breve de orientación"
-}`;
-  }, []);
-
-  function vibrate() {
-    try {
-      Vibration.vibrate(50);
-    } catch {}
-  }
+  const activeRef = useRef(false); // Ref para controlar el bucle sin retrasos de estado
 
   function speak(text: string, onDone?: () => void) {
     if (!text) return;
-
-    speakingRef.current = true;
-
     Speech.stop();
     Speech.speak(text, {
-      language: "es-ES",
-      rate: 0.95,
-      pitch: 1.0,
-      onDone: () => {
-        speakingRef.current = false;
-        onDone?.();
-      },
-      onStopped: () => {
-        speakingRef.current = false;
-      },
-      onError: () => {
-        speakingRef.current = false;
-      },
+      language: "es",
+      rate: 1.0,
+      onDone: () => onDone?.(),
     });
   }
 
-  async function ensurePermissions() {
-    assertEnv();
-
-    const cam = await requestCamPermission();
-    if (!cam.granted) throw new Error("Camera permission not granted");
-
-    const loc = await Location.requestForegroundPermissionsAsync();
-    if (loc.status !== "granted") throw new Error("Location permission not granted");
-  }
-
-  async function startLocationWatch() {
-    if (locationSub.current) return;
-
-    locationSub.current = await Location.watchPositionAsync(
-      {
-        accuracy: Location.Accuracy.Balanced,
-        timeInterval: 1000,
-        distanceInterval: 0,
-      },
-      (pos) => {
-        latestLocation.current = pos;
-      }
-    );
-
-    try {
-      headingSub.current = await Location.watchHeadingAsync((heading) => {
-        const h = heading.trueHeading ?? heading.magHeading ?? null;
-        headingRef.current = typeof h === "number" ? h : null;
-      });
-    } catch {
-      headingRef.current = null;
-    }
-  }
-
-  function stopLocationWatch() {
-    locationSub.current?.remove();
-    headingSub.current?.remove();
-    locationSub.current = null;
-    headingSub.current = null;
-    headingRef.current = null;
-  }
-
-  function buildPrompt() {
-    const loc = latestLocation.current;
-    const heading = headingRef.current;
-
-    let spatial = "";
-
-    if (loc && heading != null) {
-      spatial = `Usuario mirando hacia ${heading.toFixed(0)} grados.`;
-    }
-
-    return `${promptBase}\n${spatial}`;
-  }
-
   async function captureAndDescribe() {
-    if (!cameraRef.current) return;
-    if (busyRef.current) return;
-    if (speakingRef.current) return;
+    // Si no está activo o ya está ocupado, salimos
+    if (!cameraRef.current || busy || !activeRef.current) return;
 
-    busyRef.current = true;
-
+    setBusy(true);
     try {
-      vibrate();
-
+      // Capturamos con base64: false para que sea más rápido (usamos el URI)
       const photo = await cameraRef.current.takePictureAsync({
-        base64: true,
-        quality: 0.5,
+        quality: 0.3,
+        skipProcessing: true,
       });
 
-      const sensors: any = {};
-      if (headingRef.current != null) {
-        sensors.heading = headingRef.current;
+      const formData = new FormData();
+      // @ts-ignore - Estructura que ya te funciona en ReadingScreen
+      formData.append("file", {
+        uri: photo.uri,
+        name: "walk.jpg",
+        type: "image/jpeg",
+      });
+
+      const response = await fetch(WALK_ENDPOINT, {
+        method: "POST",
+        body: formData,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      if (!response.ok) throw new Error("Server error");
+
+      const data = await response.json();
+      // IMPORTANTE: el endpoint /walk devuelve "description", no "text"
+      const message = data.description || data.caption; 
+
+      if (message && message !== lastMessageRef.current) {
+        lastMessageRef.current = message;
+        Vibration.vibrate(50);
+        speak(message, () => {
+          // Solo cuando termina de hablar, esperamos 1 seg y repetimos
+          if (activeRef.current) {
+            setTimeout(captureAndDescribe, 1000);
+          }
+        });
+      } else if (activeRef.current) {
+        // Si no hay cambio, reintenta más rápido
+        setTimeout(captureAndDescribe, 1500);
       }
 
-      const result = await describeEnvironment({
-        imageBase64: photo.base64,
-        imageMimeType: "image/jpeg",
-        sensors: Object.keys(sensors).length ? sensors : undefined,
-        mode: "fast",
-        prompt: buildPrompt(),
-      });
-
-      let data: AiResult;
-
-      try {
-        data = JSON.parse(result.description);
-      } catch {
-        data = { type: "info", message: result.description ?? "" };
-      }
-
-      const message = data?.message?.trim();
-
-      if (!message) return;
-      if (message === lastMessageRef.current) return;
-
-      lastMessageRef.current = message;
-
-      speak(message, () => {
-        if (active) {
-          setTimeout(() => {
-            captureAndDescribe();
-          }, 250);
-        }
-      });
-    } catch {
-      speak("Error al analizar el entorno");
+    } catch (error) {
+      console.error("Error en /walk:", error);
+      // Si hay error, esperamos 3 segundos y reintentamos el bucle
+      if (activeRef.current) setTimeout(captureAndDescribe, 3000);
     } finally {
-      busyRef.current = false;
+      setBusy(false);
     }
   }
 
-  async function startMode() {
-    try {
-      await ensurePermissions();
-      await startLocationWatch();
-      setActive(true);
-
-      speak("Mapa cognitivo activado", () => {
-        captureAndDescribe();
-      });
-    } catch {
-      speak("No se pudieron obtener los permisos");
-    }
-  }
-
-  function stopMode() {
-    setActive(false);
-    stopLocationWatch();
-    Speech.stop();
-    speak("Mapa cognitivo desactivado");
-  }
-
-  const handlePress = async () => {
-    if (!active) {
-      await startMode();
-    } else {
-      captureAndDescribe();
-    }
+  const startMode = async () => {
+    const { granted } = await requestCamPermission();
+    if (!granted) return;
+    
+    activeRef.current = true;
+    setActive(true);
+    speak("Modo caminata iniciado", () => captureAndDescribe());
   };
 
-  const handleLongPress = () => {
-    if (active) stopMode();
+  const stopMode = () => {
+    activeRef.current = false;
+    setActive(false);
+    Speech.stop();
+    speak("Modo caminata desactivado");
   };
 
   useEffect(() => {
     return () => {
-      stopLocationWatch();
+      activeRef.current = false;
       Speech.stop();
     };
   }, []);
@@ -245,14 +109,14 @@ Responde SOLO en JSON:
   return (
     <Pressable
       style={styles.container}
-      onPress={handlePress}
-      onLongPress={handleLongPress}
+      onPress={() => !active ? startMode() : null}
+      onLongPress={stopMode}
     >
       <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
-
-      {busyRef.current && (
-        <View style={styles.busyOverlay}>
-          <ActivityIndicator size="large" color="#fff" />
+      
+      {active && (
+        <View style={styles.overlay}>
+          <ActivityIndicator size="large" color="#0b5fff" />
         </View>
       )}
     </Pressable>
@@ -260,16 +124,13 @@ Responde SOLO en JSON:
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "black",
-  },
-  busyOverlay: {
+  container: { flex: 1, backgroundColor: "black" },
+  overlay: {
     position: "absolute",
+    top: '40%',
     alignSelf: "center",
-    bottom: 120,
     backgroundColor: "rgba(0,0,0,0.6)",
-    padding: 12,
-    borderRadius: 10,
-  },
+    padding: 30,
+    borderRadius: 20
+  }
 });

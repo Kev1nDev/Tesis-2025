@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
-import { Pressable, StyleSheet, ActivityIndicator, Vibration } from 'react-native';
+// Añadimos View a la importación
+import { Pressable, StyleSheet, ActivityIndicator, Vibration, View } from 'react-native';
 import { CameraView } from 'expo-camera';
 import * as Speech from 'expo-speech';
 
@@ -24,31 +25,25 @@ export default function DescribeCameraScreen() {
   }
 
   function vibrate() {
-    console.log('Vibrating device');
     Vibration.vibrate(80);
   }
 
   async function describeScene() {
-    if (!cameraRef.current || busy) {
-      console.log('Ignored tap — busy or no camera');
-      return;
-    }
+    if (!cameraRef.current || busy) return;
 
     setBusy(true);
-    console.log('START describeScene()');
 
     try {
       vibrate();
       speak('Capturando imagen');
 
       const photo = await cameraRef.current.takePictureAsync({ 
-        base64: false, // No necesitamos base64, usaremos la URI para el FormData
+        base64: false, 
         quality: 0.7 
       });
 
       speak('Analizando escena');
 
-      // --- Lógica integrada para /caption ---
       const formData = new FormData();
       // @ts-ignore
       formData.append('file', {
@@ -66,13 +61,9 @@ export default function DescribeCameraScreen() {
         },
       });
 
-      if (!response.ok) {
-        throw new Error(`Server error: ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
 
       const result = await response.json();
-      
-      // El servidor devuelve {"caption": "..."} para este endpoint
       const desc = result.caption?.trim() || '';
       
       if (!desc || desc === "no hay texto") {
@@ -85,7 +76,6 @@ export default function DescribeCameraScreen() {
       console.error('DESCRIBE ERROR:', e);
       speak('Error analizando la escena', SPEECH_PRIORITY_ERROR);
     } finally {
-      console.log('END describeScene()');
       setBusy(false);
     }
   }
@@ -97,12 +87,15 @@ export default function DescribeCameraScreen() {
       onLongPress={() => speak('Presiona la pantalla para describir lo que hay frente a ti', SPEECH_PRIORITY_STATUS)}
     >
       <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
+      
+      {/* Overlay unificado con el resto de la app */}
       {busy && (
-        <ActivityIndicator 
-          size="large" 
-          color="#ffffff" 
-          style={styles.spinner} 
-        />
+        <View style={styles.overlay}>
+          <ActivityIndicator 
+            size="large" 
+            color="#0b5fff" 
+          />
+        </View>
       )}
     </Pressable>
   );
@@ -113,10 +106,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'black',
   },
-  spinner: {
-    position: 'absolute',
-    top: '50%',
-    alignSelf: 'center',
+  overlay: {
+    position: "absolute",
+    top: '40%',
+    alignSelf: "center",
+    backgroundColor: "rgba(0,0,0,0.6)",
+    padding: 30,
+    borderRadius: 20,
     zIndex: 10,
-  },
+  }
 });

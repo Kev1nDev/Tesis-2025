@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Vibration } from 'react-native';
+// Añadimos View a la importación
+import { ActivityIndicator, Pressable, StyleSheet, Vibration, View } from 'react-native';
 import { CameraView } from 'expo-camera';
 import * as Speech from 'expo-speech';
 import * as Location from 'expo-location';
@@ -8,7 +9,6 @@ const SPEECH_PRIORITY_STATUS = 30;
 const SPEECH_PRIORITY_TEXT = 100;
 const SPEECH_PRIORITY_ERROR = 200;
 
-// Reemplaza con la IP de tu instancia de EC2
 const EC2_ENDPOINT = 'http://18.224.161.7:8000/book';
 
 export default function ReadingScreen() {
@@ -17,7 +17,6 @@ export default function ReadingScreen() {
   const [busy, setBusy] = useState(false);
 
   function speak(text: string, priority = SPEECH_PRIORITY_STATUS) {
-    console.log('SPEAK:', text, 'PRIORITY:', priority);
     if (!text || priority < lastSpokenPriority.current) return;
     Speech.stop();
     lastSpokenPriority.current = priority;
@@ -25,18 +24,13 @@ export default function ReadingScreen() {
   }
 
   function vibrate() {
-    console.log('Vibrating device');
     Vibration.vibrate(80);
   }
 
   async function describe() {
-    if (!cameraRef.current || busy) {
-      console.log('Ignored tap — busy or no camera');
-      return;
-    }
+    if (!cameraRef.current || busy) return;
 
     setBusy(true);
-    console.log('START OCR Process');
 
     try {
       vibrate();
@@ -49,7 +43,6 @@ export default function ReadingScreen() {
 
       speak('Procesando texto');
 
-      // --- Lógica del endpoint /book integrada ---
       const formData = new FormData();
       // @ts-ignore
       formData.append('file', {
@@ -67,13 +60,9 @@ export default function ReadingScreen() {
         },
       });
 
-      if (!response.ok) {
-        throw new Error(`Server error: ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
 
       const result = await response.json();
-      
-      // result.text es lo que devuelve tu script de Python
       const textToSpeak = result.text || 'No se detectó texto';
       speak(textToSpeak, SPEECH_PRIORITY_TEXT);
 
@@ -81,7 +70,6 @@ export default function ReadingScreen() {
       console.error('ERROR EN /BOOK:', e);
       speak('Error al conectar con el servidor de lectura', SPEECH_PRIORITY_ERROR);
     } finally {
-      console.log('END OCR Process');
       setBusy(false);
     }
   }
@@ -93,12 +81,15 @@ export default function ReadingScreen() {
       onLongPress={() => speak('Presiona una vez para leer el texto frente a ti', SPEECH_PRIORITY_STATUS)}
     >
       <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
+      
+      {/* Ajustado para usar el mismo estilo visual que las otras pantallas */}
       {busy && (
-        <ActivityIndicator 
-          size="large" 
-          color="#ffffff" 
-          style={styles.spinner} 
-        />
+        <View style={styles.overlay}>
+          <ActivityIndicator 
+            size="large" 
+            color="#0b5fff" 
+          />
+        </View>
       )}
     </Pressable>
   );
@@ -109,10 +100,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'black',
   },
-  spinner: {
-    position: 'absolute',
-    top: '50%',
-    alignSelf: 'center',
+  // Unificamos el estilo del overlay
+  overlay: {
+    position: "absolute",
+    top: '40%',
+    alignSelf: "center",
+    backgroundColor: "rgba(0,0,0,0.6)",
+    padding: 30,
+    borderRadius: 20,
     zIndex: 10,
-  },
+  }
 });

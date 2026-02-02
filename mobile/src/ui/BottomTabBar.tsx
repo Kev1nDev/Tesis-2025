@@ -6,9 +6,11 @@ import {
   View,
   Animated,
   PanResponder,
+  Vibration,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Speech from "expo-speech";
+import { useAudioPlayer } from "expo-audio"; // Importación necesaria
 
 export type BottomTab = {
   key: string;
@@ -29,6 +31,9 @@ export function BottomTabBar({ tabs, activeIndex, onChange }: Props) {
   const activeIndexRef = useRef(activeIndex);
   const tabsLenRef = useRef(tabs.length);
 
+  // 1. Cargamos el sonido de la rueda (Asegúrate de tenerlo en assets)
+  const player = useAudioPlayer(require('../../assets/swipe.mp3'));
+
   useEffect(() => {
     activeIndexRef.current = activeIndex;
   }, [activeIndex]);
@@ -36,18 +41,38 @@ export function BottomTabBar({ tabs, activeIndex, onChange }: Props) {
   useEffect(() => {
     tabsLenRef.current = tabs.length;
   }, [tabs.length]);
-
+// Manejo de voz al cambiar de tab con DELAY de 300ms
   useEffect(() => {
     const label = tabs[activeIndex]?.label;
     if (!label) return;
 
+    // 1. Detenemos cualquier voz en curso inmediatamente
     Speech.stop(); 
-    Speech.speak(label, {
-      language: "es-ES",
-      rate: 0.95,
-      pitch: 1.0,
-    });
+
+    // 2. Creamos el timer para esperar 300ms
+    const timer = setTimeout(() => {
+      Speech.speak(label, {
+        language: "es-ES",
+        rate: 0.95,
+        pitch: 1.0,
+      });
+    }, 500); // <--- El delay que pediste
+
+    // 3. Limpieza: Si el usuario cambia de pestaña antes de los 300ms, 
+    // cancelamos el timer anterior para que no se acumulen las voces.
+    return () => clearTimeout(timer);
   }, [activeIndex]);
+
+  // 3. Función para el feedback sensorial (Sonido + Vibración)
+  const playFeedback = () => {
+    // Sonido
+    if (player) {
+      player.seekTo(0);
+      player.play();
+    }
+    // Micro-vibración (10ms es casi un "toque" físico)
+    Vibration.vibrate(10);
+  };
 
   const panX = useRef(new Animated.Value(0)).current;
 
@@ -69,8 +94,10 @@ export function BottomTabBar({ tabs, activeIndex, onChange }: Props) {
         const last = tabsLenRef.current - 1;
 
         if (dx > SWIPE_THRESHOLD && prevIndex > 0) {
+          playFeedback(); // Disparar aquí
           onChange(prevIndex - 1);
         } else if (dx < -SWIPE_THRESHOLD && prevIndex < last) {
+          playFeedback(); // Disparar aquí
           onChange(prevIndex + 1);
         }
 
@@ -95,7 +122,10 @@ export function BottomTabBar({ tabs, activeIndex, onChange }: Props) {
     >
       <View style={styles.floatingBar}>
         <Pressable
-          onPress={() => onChange(activeIndex)}
+          onPress={() => {
+            playFeedback(); // También suena al tocar el botón central
+            onChange(activeIndex);
+          }}
           style={({ pressed }) => [styles.activePill, pressed && styles.pressed]}
         >
           <Text style={styles.activeLabel}>
@@ -114,7 +144,6 @@ const styles = StyleSheet.create({
     width: "100%",
     alignItems: "center",
   },
-
   floatingBar: {
     backgroundColor: "rgba(20, 20, 25, 0.7)",
     borderRadius: 80,
@@ -129,7 +158,6 @@ const styles = StyleSheet.create({
     width: "94%",
     alignSelf: "center",
   },
-
   activePill: {
     flex: 1,
     height: 100,
@@ -139,12 +167,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 12,
   },
-
   pressed: {
     opacity: 0.92,
     transform: [{ scale: 0.98 }],
   },
-
   activeLabel: {
     color: "#FFFFFF",
     fontSize: 17,
