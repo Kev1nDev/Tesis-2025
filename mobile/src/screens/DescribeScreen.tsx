@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, View, Pressable, Platform } from 'react-native';
+// Añadimos ActivityIndicator a las importaciones
+import { StyleSheet, View, Pressable, Platform, ActivityIndicator } from 'react-native'; 
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Speech from 'expo-speech';
 import * as Location from 'expo-location';
@@ -21,12 +22,9 @@ export default function DescribeScreen() {
     (async () => {
       try {
         assertEnv();
-
         await requestCamPermission();
         await Audio.requestPermissionsAsync();
         await Location.requestForegroundPermissionsAsync();
-
-        //speak('Cámara lista. Toque la pantalla para describir su entorno.');
       } catch (e) {
         speak('Error al iniciar la aplicación.');
       }
@@ -39,13 +37,12 @@ export default function DescribeScreen() {
 
     Speech.stop();
     lastSpokenPriority.current = priority;
-
     Speech.speak(text, { language: 'es', rate: 0.95, pitch: 1 });
   }
 
   async function describe() {
     if (busy || !cameraRef.current) return;
-    setBusy(true);
+    setBusy(true); // <--- El spinner aparece aquí
 
     try {
       speak('Capturando imagen');
@@ -72,26 +69,35 @@ export default function DescribeScreen() {
       speak('Analizando el entorno');
 
       const result = await describeEnvironment(payload);
-
       speak(result.description);
 
     } catch (e) {
       speak('Ocurrió un error al describir el entorno');
     } finally {
-      setBusy(false);
+      setBusy(false); // <--- El spinner desaparece aquí
     }
   }
 
   return (
-    <Pressable style={styles.fullscreen} onPress={describe}       
-    onLongPress={() =>
-        speak('Presiona la pantalla para describir la escena a detalle', SPEECH_PRIORITY_STATUS)
-      }>
+    <Pressable 
+      style={styles.fullscreen} 
+      onPress={describe}      
+      onLongPress={() =>
+          speak('Presiona la pantalla para describir la escena a detalle', SPEECH_PRIORITY_STATUS)
+      }
+    >
       <CameraView
         ref={cameraRef}
         style={StyleSheet.absoluteFill}
         facing="back"
       />
+
+      {/* --- CÓDIGO DEL ACTIVITY INDICATOR --- */}
+      {busy && (
+        <View style={styles.overlay}>
+          <ActivityIndicator size="large" color="#0b5fff" />
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -101,4 +107,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'black',
   },
+  // Estilo idéntico al de WalkMode para mantener coherencia
+  overlay: {
+    position: "absolute",
+    top: '40%',
+    alignSelf: "center",
+    backgroundColor: "rgba(0,0,0,0.6)",
+    padding: 30,
+    borderRadius: 20,
+    zIndex: 10,
+  }
 });

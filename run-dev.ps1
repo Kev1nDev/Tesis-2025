@@ -124,11 +124,19 @@ $backendCmd = @(
 
 Start-PowerShellWindow -Title 'tesis-backend (dev)' -Command $backendCmd
 
-# Start Expo without interactive port prompt.
+# Start Expo
+if ($ExpoHost -eq 'tunnel') {
+  $expoArgs = "--tunnel"
+} elseif ($ExpoHost -eq 'localhost') {
+  $expoArgs = "--localhost"
+} else {
+  $expoArgs = ""
+}
+
 $mobileCmd = @(
   "Set-Location -LiteralPath '$mobileDir'",
   "npm install",
-  "npm run start -- --clear --port $ExpoPort --host $ExpoHost"
+  "npm run start -- $expoArgs"
 ) -join '; '
 
 Start-PowerShellWindow -Title 'tesis-mobile (expo)' -Command $mobileCmd

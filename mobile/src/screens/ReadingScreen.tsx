@@ -1,14 +1,15 @@
 import React, { useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Vibration } from 'react-native';
+// Añadimos View a la importación
+import { ActivityIndicator, Pressable, StyleSheet, Vibration, View } from 'react-native';
 import { CameraView } from 'expo-camera';
 import * as Speech from 'expo-speech';
 import * as Location from 'expo-location';
-import { assertEnv } from '../config/env';
-import { describeEnvironment } from '../services/descriptionApi';
 
 const SPEECH_PRIORITY_STATUS = 30;
 const SPEECH_PRIORITY_TEXT = 100;
 const SPEECH_PRIORITY_ERROR = 200;
+
+const EC2_ENDPOINT = 'http://18.224.161.7:8000/book';
 
 export default function ReadingScreen() {
   const cameraRef = useRef<CameraView>(null);
@@ -16,7 +17,6 @@ export default function ReadingScreen() {
   const [busy, setBusy] = useState(false);
 
   function speak(text: string, priority = SPEECH_PRIORITY_STATUS) {
-    console.log('SPEAK:', text, 'PRIORITY:', priority);
     if (!text || priority < lastSpokenPriority.current) return;
     Speech.stop();
     lastSpokenPriority.current = priority;
@@ -24,51 +24,52 @@ export default function ReadingScreen() {
   }
 
   function vibrate() {
-    console.log('Vibrating device');
     Vibration.vibrate(80);
   }
 
   async function describe() {
-    if (!cameraRef.current || busy) {
-      console.log('Ignored tap — busy or no camera');
-      return;
-    }
+    if (!cameraRef.current || busy) return;
 
     setBusy(true);
-    console.log('START describe()');
 
     try {
-      assertEnv();
       vibrate();
       speak('Capturando imagen');
 
-      const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.8 });
-      console.log('Photo captured', { uri: photo.uri, base64Length: photo.base64?.length });
+      const photo = await cameraRef.current.takePictureAsync({ 
+        base64: true, 
+        quality: 0.8 
+      });
 
-      const location = await Location.getCurrentPositionAsync({});
+      speak('Procesando texto');
 
-      const payload = {
-        imageBase64: photo.base64,
-        imageMimeType: 'image/jpeg',
-        sensors: {
-          capturedAtIso: new Date().toISOString(),
-          location: {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-          },
+      const formData = new FormData();
+      // @ts-ignore
+      formData.append('file', {
+        uri: photo.uri,
+        name: 'photo.jpg',
+        type: 'image/jpeg',
+      });
+
+      const response = await fetch(EC2_ENDPOINT, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'multipart/form-data',
         },
-        mode: 'balanced' as const,
-      };
+      });
 
-      speak('Analizando el entorno');
-      const result = await describeEnvironment(payload);
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
 
-      speak(result.description, SPEECH_PRIORITY_TEXT);
+      const result = await response.json();
+      const textToSpeak = result.text || 'No se detectó texto';
+      speak(textToSpeak, SPEECH_PRIORITY_TEXT);
+
     } catch (e) {
-      console.error('DESCRIBE ERROR:', e);
-      speak('Error describiendo el entorno', SPEECH_PRIORITY_ERROR);
+      console.error('ERROR EN /BOOK:', e);
+      speak('Error al conectar con el servidor de lectura', SPEECH_PRIORITY_ERROR);
     } finally {
-      console.log('END describe()');
       setBusy(false);
     }
   }
@@ -77,10 +78,19 @@ export default function ReadingScreen() {
     <Pressable
       style={styles.fullscreen}
       onPress={describe}
-      onLongPress={() => speak('Presiona la pantalla para describir el entorno', SPEECH_PRIORITY_STATUS)}
+      onLongPress={() => speak('Presiona una vez para leer el texto frente a ti', SPEECH_PRIORITY_STATUS)}
     >
       <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
-      {busy && <ActivityIndicator size="large" style={styles.spinner} />}
+      
+      {/* Ajustado para usar el mismo estilo visual que las otras pantallas */}
+      {busy && (
+        <View style={styles.overlay}>
+          <ActivityIndicator 
+            size="large" 
+            color="#0b5fff" 
+          />
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -90,9 +100,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'black',
   },
-  spinner: {
-    position: 'absolute',
-    top: '50%',
-    alignSelf: 'center',
-  },
+  // Unificamos el estilo del overlay
+  overlay: {
+    position: "absolute",
+    top: '40%',
+    alignSelf: "center",
+    backgroundColor: "rgba(0,0,0,0.6)",
+    padding: 30,
+    borderRadius: 20,
+    zIndex: 10,
+  }
 });

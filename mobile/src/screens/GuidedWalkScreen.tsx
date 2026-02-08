@@ -5,22 +5,12 @@ import * as Location from 'expo-location';
 import * as Speech from 'expo-speech';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { assertEnv } from '../config/env';
-import { describeEnvironment } from '../services/descriptionApi';
+// Usamos la misma IP que ya te funciona en /book
+const WALK_ENDPOINT = "http://18.224.161.7:8000/walk";
 
-const CAPTURE_INTERVAL_MS = 1000;
-const MIN_SPEAK_GAP_MS = 4500;
-
-function safeNowMs(): number {
-  return Date.now();
-}
-
-export default function GuidedWalkScreen() {
-  const cameraRef = useRef<CameraView>(null);
+export default function WalkModeScreen() {
+  const cameraRef = useRef<CameraView | null>(null);
   const [camPermission, requestCamPermission] = useCameraPermissions();
-  const [busy, setBusy] = useState(false);
-  const busyRef = useRef(false);
-
   const [active, setActive] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -34,40 +24,19 @@ export default function GuidedWalkScreen() {
     accuracyMeters?: number;
   } | null>(null);
 
-  const locationSub = useRef<Location.LocationSubscription | null>(null);
-
-  const canUseCamera = Boolean(camPermission?.granted);
-
-  const promptBase = useMemo(() => {
-    return (
-      'Estás en modo caminata guiada. Tu tarea es ayudar a una persona a caminar con seguridad.\n' +
-      '- Describe SOLO lo que está justo enfrente.\n' +
-      '- Prioriza obstáculos y riesgos (escalones, bordes, huecos, vehículos, personas, postes, puertas).\n' +
-      '- Sé breve (1-2 frases) si no hay una pregunta.\n' +
-      '- Si el usuario hace una pregunta, respóndela primero.\n'
-    );
-  }, []);
-
-  function speak(text: string) {
+  function speak(text: string, onDone?: () => void) {
     if (!text) return;
     Speech.stop();
     Speech.speak(text, {
-      language: 'es-ES',
-      rate: 0.95,
-      pitch: 1.0,
+      language: "es",
+      rate: 1.0,
+      onDone: () => onDone?.(),
     });
   }
 
-  function maybeSpeak(text: string) {
-    const now = safeNowMs();
-    if (!text) return;
-    if (now - lastSpokenAtMs.current < MIN_SPEAK_GAP_MS) return;
-    lastSpokenAtMs.current = now;
-    speak(text);
-  }
-
-  async function ensurePermissions() {
-    assertEnv();
+  async function captureAndDescribe() {
+    // Si no está activo o ya está ocupado, salimos
+    if (!cameraRef.current || busy || !activeRef.current) return;
 
     const cam = await requestCamPermission();
     if (!cam.granted) throw new Error('Camera permission not granted');
@@ -118,18 +87,24 @@ export default function GuidedWalkScreen() {
       setStatus('Analizando entorno…');
 
       const photo = await cameraRef.current.takePictureAsync({
-        base64: true,
-        quality: 0.35,
+        quality: 0.3,
+        skipProcessing: true,
       });
 
-      const loc = latestLocation.current;
+      const formData = new FormData();
+      // @ts-ignore - Estructura que ya te funciona en ReadingScreen
+      formData.append("file", {
+        uri: photo.uri,
+        name: "walk.jpg",
+        type: "image/jpeg",
+      });
 
-      const payload = {
-        imageBase64: photo.base64,
-        imageMimeType: 'image/jpeg',
-        sensors: {
-          capturedAtIso: new Date().toISOString(),
-          location: loc ?? undefined,
+      const response = await fetch(WALK_ENDPOINT, {
+        method: "POST",
+        body: formData,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'multipart/form-data',
         },
         mode: 'fast' as const,
         prompt: buildPrompt(),
@@ -139,60 +114,34 @@ export default function GuidedWalkScreen() {
       if (forceSpeak) speak(result.description);
       else maybeSpeak(result.description);
 
-      setStatus('');
-    } catch (e) {
-      setStatus('Error consultando la IA');
-      if (forceSpeak) speak('Error consultando la IA');
+    } catch (error) {
+      console.error("Error en /walk:", error);
+      // Si hay error, esperamos 3 segundos y reintentamos el bucle
+      if (activeRef.current) setTimeout(captureAndDescribe, 3000);
     } finally {
-      busyRef.current = false;
       setBusy(false);
     }
   }
 
-  function clearIntervalIfAny() {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-  }
+  const startMode = async () => {
+    const { granted } = await requestCamPermission();
+    if (!granted) return;
+    
+    activeRef.current = true;
+    setActive(true);
+    speak("Modo caminata iniciado", () => captureAndDescribe());
+  };
 
-  async function startGuidedMode() {
-    try {
-      await ensurePermissions();
-      await startLocationWatch();
-
-      setActive(true);
-      setStatus('Modo caminata guiada activado');
-      speak('Modo caminata guiada activado');
-
-      await captureAndDescribe({ forceSpeak: true });
-
-      clearIntervalIfAny();
-      intervalRef.current = setInterval(() => {
-        if (!busyRef.current) captureAndDescribe();
-      }, CAPTURE_INTERVAL_MS);
-    } catch {
-      setActive(false);
-      clearIntervalIfAny();
-      stopLocationWatch();
-      speak('No se pudieron obtener permisos.');
-    }
-  }
-
-  function stopGuidedMode() {
+  const stopMode = () => {
+    activeRef.current = false;
     setActive(false);
-    clearIntervalIfAny();
-    stopLocationWatch();
-    setStatus('Modo caminata guiada desactivado');
     Speech.stop();
-    speak('Modo caminata guiada desactivado');
-  }
+    speak("Modo caminata desactivado");
+  };
 
   useEffect(() => {
-    // On mount: request permissions lazily on start.
     return () => {
-      clearIntervalIfAny();
-      stopLocationWatch();
+      activeRef.current = false;
       Speech.stop();
     };
   }, []);
@@ -225,7 +174,11 @@ export default function GuidedWalkScreen() {
   const tapCount = useRef(0);
 
   return (
-    <View style={styles.root}>
+    <Pressable
+      style={styles.container}
+      onPress={() => !active ? startMode() : null}
+      onLongPress={stopMode}
+    >
       <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
 
       <KeyboardAvoidingView
@@ -249,10 +202,7 @@ export default function GuidedWalkScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: 'black',
-  },
+  container: { flex: 1, backgroundColor: "black" },
   overlay: {
     flex: 1,
     justifyContent: 'flex-end',
