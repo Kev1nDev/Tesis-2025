@@ -29,6 +29,9 @@ export default function WalkModeScreen() {
     if (!cameraRef.current || !activeRef.current || busy) return;
 
     setBusy(true);
+
+    const forceSpeak = Boolean(opts?.forceSpeak);
+
     try {
       const photo = await cameraRef.current.takePictureAsync({ 
         quality: 0.1,
