@@ -1,53 +1,73 @@
 import React, { useRef, useState } from 'react';
-// Añadimos View a la importación
 import { ActivityIndicator, Pressable, StyleSheet, Vibration, View } from 'react-native';
 import { CameraView } from 'expo-camera';
 import * as Speech from 'expo-speech';
-import * as Location from 'expo-location';
+import * as ImageManipulator from 'expo-image-manipulator';
 
 const SPEECH_PRIORITY_STATUS = 30;
 const SPEECH_PRIORITY_TEXT = 100;
 const SPEECH_PRIORITY_ERROR = 200;
 
-const EC2_ENDPOINT = 'http://18.224.161.7:8000/book';
+// Asegúrate de que esta IP sea la correcta de tu instancia EC2
+const EC2_ENDPOINT = 'http://16.58.82.203:8000/book';
 
 export default function ReadingScreen() {
   const cameraRef = useRef<CameraView>(null);
   const lastSpokenPriority = useRef(0);
   const [busy, setBusy] = useState(false);
 
+  // Función de voz optimizada
   function speak(text: string, priority = SPEECH_PRIORITY_STATUS) {
-    if (!text || priority < lastSpokenPriority.current) return;
-    Speech.stop();
-    lastSpokenPriority.current = priority;
-    Speech.speak(text, { language: 'es', rate: 0.95, pitch: 1.0 });
+    if (!text) return;
+    
+    // Si es un error o texto final, permitimos interrumpir estados anteriores
+    if (priority >= lastSpokenPriority.current) {
+      Speech.stop();
+      lastSpokenPriority.current = priority;
+      Speech.speak(text, { 
+        language: 'es', 
+        rate: 0.9, // Un poco más lento para mejor comprensión de lectura
+        pitch: 1.0,
+        onDone: () => { lastSpokenPriority.current = 0; } 
+      });
+    }
   }
 
-  function vibrate() {
-    Vibration.vibrate(80);
+  function vibrateConfirm() {
+    Vibration.vibrate([0, 50, 50, 50]); // Doble pulso corto
   }
 
   async function describe() {
     if (!cameraRef.current || busy) return;
 
     setBusy(true);
+    lastSpokenPriority.current = 0; // Reset de prioridad para nueva captura
 
     try {
-      vibrate();
-      speak('Capturando imagen');
+      vibrateConfirm();
+      speak('Capturando página');
 
+      // 1. Captura con calidad balanceada
       const photo = await cameraRef.current.takePictureAsync({ 
-        base64: true, 
-        quality: 0.8 
+        quality: 0.8, 
+        skipProcessing: false
       });
 
-      speak('Procesando texto');
+      // 2. PRE-PROCESAMIENTO PRO: 
+      // Ajustamos a 1200px para que el doble chequeo del servidor tenga detalle
+      const processed = await ImageManipulator.manipulateAsync(
+        photo.uri,
+        [{ resize: { width: 1200 } }],
+        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+      );
+
+      speak('Analizando texto');
 
       const formData = new FormData();
       // @ts-ignore
       formData.append('file', {
-        uri: photo.uri,
-        name: 'photo.jpg',
+        uri: processed.uri,
+        name: 'reading.jpg',
         type: 'image/jpeg',
       });
 
@@ -56,19 +76,26 @@ export default function ReadingScreen() {
         body: formData,
         headers: {
           'Accept': 'application/json',
-          'Content-Type': 'multipart/form-data',
+          // IMPORTANTE: Dejar que el sistema gestione el Content-Type solo
         },
       });
 
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
 
       const result = await response.json();
-      const textToSpeak = result.text || 'No se detectó texto';
-      speak(textToSpeak, SPEECH_PRIORITY_TEXT);
+      
+      // El servidor ahora devuelve el texto tras el doble chequeo
+      const textToSpeak = result.text?.trim();
+      
+      if (textToSpeak && textToSpeak !== "No se detectó texto") {
+        speak(textToSpeak, SPEECH_PRIORITY_TEXT);
+      } else {
+        speak('No pude identificar texto claro. Intenta acercar un poco más la cámara.', SPEECH_PRIORITY_TEXT);
+      }
 
     } catch (e) {
       console.error('ERROR EN /BOOK:', e);
-      speak('Error al conectar con el servidor de lectura', SPEECH_PRIORITY_ERROR);
+      speak('Error de comunicación con el servidor', SPEECH_PRIORITY_ERROR);
     } finally {
       setBusy(false);
     }
@@ -78,17 +105,13 @@ export default function ReadingScreen() {
     <Pressable
       style={styles.fullscreen}
       onPress={describe}
-      onLongPress={() => speak('Presiona una vez para leer el texto frente a ti', SPEECH_PRIORITY_STATUS)}
+      onLongPress={() => speak('Modo lectura. Presiona una vez para leer el texto frente a ti.', SPEECH_PRIORITY_STATUS)}
     >
       <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
       
-      {/* Ajustado para usar el mismo estilo visual que las otras pantallas */}
       {busy && (
         <View style={styles.overlay}>
-          <ActivityIndicator 
-            size="large" 
-            color="#0b5fff" 
-          />
+          <ActivityIndicator size="large" color="#0b5fff" />
         </View>
       )}
     </Pressable>
@@ -100,7 +123,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'black',
   },
-  // Unificamos el estilo del overlay
   overlay: {
     position: "absolute",
     top: '40%',

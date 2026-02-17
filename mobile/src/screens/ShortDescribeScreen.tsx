@@ -9,7 +9,7 @@ const SPEECH_PRIORITY_TEXT = 100;
 const SPEECH_PRIORITY_ERROR = 200;
 
 // Usamos el endpoint de caption
-const EC2_ENDPOINT = 'http://18.224.161.7:8000/caption';
+const EC2_ENDPOINT = 'http://16.58.82.203:8000/caption';
 
 export default function DescribeCameraScreen() {
   const cameraRef = useRef<CameraView>(null);
