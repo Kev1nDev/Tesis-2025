@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-// Añadimos ActivityIndicator a las importaciones
 import { StyleSheet, View, Pressable, Platform, ActivityIndicator } from 'react-native'; 
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Speech from 'expo-speech';
