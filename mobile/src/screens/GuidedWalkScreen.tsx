@@ -30,7 +30,7 @@ export default function WalkModeScreen() {
 
     setBusy(true);
 
-    const forceSpeak = Boolean(opts?.forceSpeak);
+    // Removed unused 'opts' variable
 
     try {
       const photo = await cameraRef.current.takePictureAsync({ 
