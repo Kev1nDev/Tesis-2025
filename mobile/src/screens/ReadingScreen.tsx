@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Vibration, View } from 'react-native';
 import { CameraView } from 'expo-camera';
+import { useIsFocused } from '@react-navigation/native';
 import * as Speech from 'expo-speech';
 import * as ImageManipulator from 'expo-image-manipulator';
 
@@ -15,6 +16,7 @@ export default function ReadingScreen() {
   const cameraRef = useRef<CameraView>(null);
   const lastSpokenPriority = useRef(0);
   const [busy, setBusy] = useState(false);
+  const isFocused = useIsFocused();
 
   // Función de voz optimizada
   function speak(text: string, priority = SPEECH_PRIORITY_STATUS) {
@@ -107,7 +109,7 @@ export default function ReadingScreen() {
       onPress={describe}
       onLongPress={() => speak('Modo lectura. Presiona una vez para leer el texto frente a ti.', SPEECH_PRIORITY_STATUS)}
     >
-      <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
+      <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" active={isFocused} />
       
       {busy && (
         <View style={styles.overlay}>

@@ -7,6 +7,7 @@ import {
   Vibration,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import { useIsFocused } from '@react-navigation/native';
 import * as Speech from "expo-speech";
 import * as ImageManipulator from "expo-image-manipulator";
 
@@ -22,6 +23,7 @@ export default function WalkModeScreen() {
   const activeRef = useRef(false);
   const busyRef = useRef(false);
   const lastMsgRef = useRef<string>("");
+  const isFocused = useIsFocused();
 
   /* -------------------------------------------------- */
   /*  SPEECH CONTROL                                    */
@@ -192,6 +194,15 @@ export default function WalkModeScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!isFocused) {
+      // If the user navigates away, stop the walk mode and camera usage
+      activeRef.current = false;
+      setActive(false);
+      Speech.stop();
+    }
+  }, [isFocused]);
+
   /* -------------------------------------------------- */
   /*  UI                                                 */
   /* -------------------------------------------------- */
@@ -206,6 +217,7 @@ export default function WalkModeScreen() {
         ref={cameraRef}
         style={StyleSheet.absoluteFill}
         facing="back"
+        active={isFocused}
       />
 
       {busy && (

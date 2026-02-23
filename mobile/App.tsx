@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import LottieView from 'lottie-react-native';
 import { useAudioPlayer } from 'expo-audio'; // Nueva librería
+import { NavigationContainer } from '@react-navigation/native';
 
 // Pantallas y UI
 import ReadingScreen from './src/screens/ReadingScreen';
@@ -86,11 +87,12 @@ export default function App() {
 
   // Interfaz Principal
   return (
-    <SafeAreaProvider>
-      <View style={styles.root}>
-        <View style={styles.content}>
-          <SwipePager index={index} count={screens.length} onIndexChange={setIndex}>
-            {screens[index]}
+    <NavigationContainer>
+      <SafeAreaProvider>
+        <View style={styles.root}>
+          <View style={styles.content}>
+            <SwipePager index={index} count={screens.length} onIndexChange={setIndex}>
+              {screens[index]}
           </SwipePager>
         </View>
 
@@ -99,6 +101,7 @@ export default function App() {
         <StatusBar style="dark" />
       </View>
     </SafeAreaProvider>
+    </NavigationContainer>
   );
 }
 

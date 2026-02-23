@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Pressable, StyleSheet, ActivityIndicator, Vibration, View } from 'react-native';
 import { CameraView } from 'expo-camera';
+import { useIsFocused } from '@react-navigation/native';
 import * as Speech from 'expo-speech';
 
 const SPEECH_PRIORITY_STATUS = 30;
@@ -14,6 +15,7 @@ export default function DescribeCameraScreen() {
   const lastSpokenPriority = useRef(0);
   const speakingRef = useRef(false);
   const [busy, setBusy] = useState(false);
+  const isFocused = useIsFocused();
 
   // 🔥 Speak robusto
   async function speak(text: string, priority = SPEECH_PRIORITY_STATUS) {
@@ -138,6 +140,7 @@ export default function DescribeCameraScreen() {
         ref={cameraRef}
         style={StyleSheet.absoluteFill}
         facing="back"
+        active={isFocused}
       />
 
       {busy && (
