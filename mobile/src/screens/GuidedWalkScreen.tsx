@@ -10,6 +10,7 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { useIsFocused } from '@react-navigation/native';
 import * as Speech from "expo-speech";
 import * as ImageManipulator from "expo-image-manipulator";
+import { useCamera } from "../ui/CameraContext"; // Ajusta la ruta
 
 const WALK_ENDPOINT = "http://16.58.82.203:8000/walk";
 
@@ -19,11 +20,37 @@ export default function WalkModeScreen() {
   const [camPermission, requestCamPermission] = useCameraPermissions();
   const [active, setActive] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [cameraInitialized, setCameraInitialized] = useState(false);
 
   const activeRef = useRef(false);
   const busyRef = useRef(false);
   const lastMsgRef = useRef<string>("");
   const isFocused = useIsFocused();
+  
+  // Usar el contexto de cámara
+  const { activeScreen, setCameraReady } = useCamera();
+  const screenKey = 'caminata';
+
+  // Marcar cuando la cámara está lista
+  useEffect(() => {
+    if (cameraInitialized) {
+      setCameraReady(screenKey, true);
+    }
+    return () => {
+      setCameraReady(screenKey, false);
+    };
+  }, [cameraInitialized]);
+
+  // Solo renderizar completamente cuando esta pantalla está activa
+  const isActive = activeScreen === screenKey && isFocused;
+
+  const explainWalkMode = () => {
+  // 🔥 Explicación breve de la utilidad de la pantalla
+  const explanation = "Usa la cámara para detectar obstáculos como personas, escaleras o paredes en tu camino. Presiona para iniciar. Presiona prolongadamente para detener. La cámara se activará cada pocos segundos para analizar tu entorno. Nunca te guies solo por esta herramienta, siempre camina con asistencia o bastón guiador.";
+  
+  Speech.stop();
+  speak(explanation);
+};
 
   /* -------------------------------------------------- */
   /*  SPEECH CONTROL                                    */
@@ -35,7 +62,6 @@ export default function WalkModeScreen() {
       return;
     }
 
-    // Evita repetir constantemente "Camino despejado"
     if (text === lastMsgRef.current && text === "Camino despejado") {
       onDone?.();
       return;
@@ -86,6 +112,7 @@ export default function WalkModeScreen() {
     if (!cameraRef.current) return;
     if (!activeRef.current) return;
     if (busyRef.current) return;
+    if (!isActive) return; // No capturar si no estamos activos
 
     busyRef.current = true;
     setBusy(true);
@@ -137,7 +164,7 @@ export default function WalkModeScreen() {
       }
 
       speak(message, () => {
-        if (activeRef.current) {
+        if (activeRef.current && isActive) {
           setTimeout(captureAndDescribe, 2600);
         }
       });
@@ -146,7 +173,7 @@ export default function WalkModeScreen() {
       console.log("Walk error:", error?.message);
 
       speak("Problema de conexión", () => {
-        if (activeRef.current) {
+        if (activeRef.current && isActive) {
           setTimeout(captureAndDescribe, 3300);
         }
       });
@@ -163,6 +190,7 @@ export default function WalkModeScreen() {
 
   const startMode = async () => {
     if (busyRef.current) return;
+    if (!isActive) return; // No iniciar si no estamos activos
 
     const { granted } = await requestCamPermission();
     if (!granted) return;
@@ -194,39 +222,49 @@ export default function WalkModeScreen() {
     };
   }, []);
 
+  // Pausar cuando la pantalla no está activa
   useEffect(() => {
-    if (!isFocused) {
-      // If the user navigates away, stop the walk mode and camera usage
+    if (!isActive) {
       activeRef.current = false;
       setActive(false);
       Speech.stop();
     }
-  }, [isFocused]);
+  }, [isActive]);
 
-  /* -------------------------------------------------- */
-  /*  UI                                                 */
-  /* -------------------------------------------------- */
+/* -------------------------------------------------- */
+/*  UI                                                 */
+/* -------------------------------------------------- */
 
-  return (
-    <Pressable
-      style={styles.container}
-      onPress={() => !active && startMode()}
-      onLongPress={stopMode}
-    >
+return (
+  <Pressable
+    style={styles.container}
+    onPress={() => !active && isActive && startMode()}
+    onLongPress={() => {
+      if (active) {
+        stopMode();  // Detener si está activo
+      } else {
+        explainWalkMode();  // Explicar si está inactivo
+      }
+    }}
+    disabled={!isActive}  // Opcional: deshabilitar si no estamos enfocados
+  >
+    {isActive && (
       <CameraView
         ref={cameraRef}
         style={StyleSheet.absoluteFill}
         facing="back"
-        active={isFocused}
+        active={isActive}
+        onCameraReady={() => setCameraInitialized(true)}
       />
+    )}
 
-      {busy && (
-        <View style={styles.overlay}>
-          <ActivityIndicator size="large" color="#0b5fff" />
-        </View>
-      )}
-    </Pressable>
-  );
+    {busy && (
+      <View style={styles.overlay}>
+        <ActivityIndicator size="large" color="#0b5fff" />
+      </View>
+    )}
+  </Pressable>
+);
 }
 
 /* -------------------------------------------------- */
