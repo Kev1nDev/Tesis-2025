@@ -75,7 +75,7 @@ export default function ReadingScreen() {
     // Efecto que se ejecuta SOLO en el primer montaje
     useEffect(() => {
       if (!hasSpokenWelcome.current) {
-        const welcome = "Bienvenido a Tiflex App. Desliza horizontalmente para cambiar entre modos: lectura, descripción detallada, descripción rápida y modo caminata. Todos ellos son cámaras con diferentes objetivos, presiona prolongadamente cada una para escuchar su utilidad. Para una mejor experiencia, camina con asistencia o bastón guiador, especialmente en modo caminata.";
+        const welcome = "Bienvenido a Tiflex App. Desliza horizontalmente la barra inferior para cambiar entre modos: lectura, descripción detallada, descripción rápida y modo caminata. Todos ellos son cámaras con diferentes objetivos, presiona prolongadamente cada una para escuchar su utilidad. Para una mejor experiencia, camina con asistencia o bastón guiador, especialmente en modo caminata.";
         
         // 🔥 Detener cualquier audio previo
         Speech.stop();
@@ -83,13 +83,15 @@ export default function ReadingScreen() {
         Speech.speak(welcome, {
           language: 'es',
           rate: 1.0,
-          // 🔥 CLAVE: Solo habilitar long press cuando termine la bienvenida
           onDone: () => {
             welcomeFinished.current = true;
             hasSpokenWelcome.current = true;
           },
+          onStopped: () => { // 👈 AGREGAR ESTO
+            welcomeFinished.current = true;
+            hasSpokenWelcome.current = true;
+          },
           onError: () => {
-            // En caso de error, igual habilitamos para no bloquear la UX
             welcomeFinished.current = true;
             hasSpokenWelcome.current = true;
           }
@@ -200,7 +202,7 @@ export default function ReadingScreen() {
         
         // 🔥 Solo decir explicación si YA terminó la bienvenida
         if (welcomeFinished.current) {
-          speak('Modo lectura. Presiona una vez para leer el texto frente a ti.', SPEECH_PRIORITY_STATUS);
+          speak('Presiona una vez para leer el texto frente a ti.', SPEECH_PRIORITY_STATUS);
         }
       }}
     >

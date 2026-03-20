@@ -14,6 +14,7 @@ import GuidedWalkScreen from './src/screens/GuidedWalkScreen';
 import { BottomTabBar } from './src/ui/BottomTabBar';
 import { SwipePager } from './src/ui/SwipePager';
 import { CameraProvider, useCamera } from './src/ui/CameraContext';
+import { PaperProvider } from 'react-native-paper';
 
 // Componente que maneja las pantallas con cámara
 const CameraScreens = ({ index }: { index: number }) => {
@@ -91,6 +92,7 @@ export default function App() {
   }
 
   return (
+    <PaperProvider>
     <CameraProvider>
       <NavigationContainer>
         <SafeAreaProvider>
@@ -110,6 +112,7 @@ export default function App() {
         </SafeAreaProvider>
       </NavigationContainer>
     </CameraProvider>
+    </PaperProvider>
   );
 }
 
