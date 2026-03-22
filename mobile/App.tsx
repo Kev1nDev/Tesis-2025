@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import LottieView from 'lottie-react-native';
-import { useAudioPlayer } from 'expo-audio'; // Nueva librería
+import { useAudioPlayer } from 'expo-audio';
+import { NavigationContainer } from '@react-navigation/native';
 
 // Pantallas y UI
 import ReadingScreen from './src/screens/ReadingScreen';
@@ -12,6 +13,32 @@ import DescribeCameraScreen from './src/screens/ShortDescribeScreen';
 import GuidedWalkScreen from './src/screens/GuidedWalkScreen';
 import { BottomTabBar } from './src/ui/BottomTabBar';
 import { SwipePager } from './src/ui/SwipePager';
+import { CameraProvider, useCamera } from './src/ui/CameraContext';
+
+// Componente que maneja las pantallas con cámara
+const CameraScreens = ({ index }: { index: number }) => {
+  const { setActiveScreen } = useCamera();
+
+  useEffect(() => {
+    // Actualizar qué pantalla está activa
+    const screenKeys = ['lectura', 'detallada', 'rapida', 'caminata'];
+    setActiveScreen(screenKeys[index]);
+  }, [index]);
+
+  // Solo renderizar la pantalla activa
+  switch(index) {
+    case 0:
+      return <ReadingScreen key="lectura" />;
+    case 1:
+      return <DescribeScreen key="detallada" />;
+    case 2:
+      return <DescribeCameraScreen key="rapida" />;
+    case 3:
+      return <GuidedWalkScreen key="caminata" />;
+    default:
+      return null;
+  }
+};
 
 export default function App() {
   const [index, setIndex] = useState(0);
@@ -19,31 +46,21 @@ export default function App() {
   const lottieRef = useRef<LottieView>(null);
   const hasStarted = useRef(false);
 
-  // 1. Cargamos el reproductor de audio con el archivo MP3
-  // Asegúrate de que el archivo exista en: ./assets/bienvenida.mp3
   const player = useAudioPlayer(require('./assets/blinking(2).mp3'));
 
-  // Función que lanza audio y video simultáneamente
   const startSequence = () => {
     if (hasStarted.current) return;
     hasStarted.current = true;
-
-    // 2. Reproducimos el audio
     player.play();
-
-    // 3. Iniciamos la animación
-    // Un micro-retraso de 50ms ayuda a que el hilo de audio respire
     setTimeout(() => {
       lottieRef.current?.play();
     }, 50);
   };
 
   useEffect(() => {
-    // Timer de seguridad por si la animación no termina
     const backupTimer = setTimeout(() => {
       if (!isReady) setIsReady(true);
     }, 8000);
-
     return () => clearTimeout(backupTimer);
   }, [isReady]);
 
@@ -54,24 +71,13 @@ export default function App() {
     { key: 'caminata', label: 'Modo\nCaminata' },
   ];
 
-  const screens = [
-    <ReadingScreen key="lectura" />,
-    <DescribeScreen key="detallada" />,
-    <DescribeCameraScreen key="rapida" />,
-    <GuidedWalkScreen key="caminata" />,
-  ];
-
-  // Pantalla de Carga (Splash)
   if (!isReady) {
     return (
-      <View 
-        style={styles.splashContainer} 
-        onLayout={startSequence} 
-      >
+      <View style={styles.splashContainer} onLayout={startSequence}>
         <LottieView
           ref={lottieRef}
           source={require('./assets/animacion.json')}
-          autoPlay={false} 
+          autoPlay={false}
           loop={false}
           style={styles.lottie}
           resizeMode="contain"
@@ -84,40 +90,37 @@ export default function App() {
     );
   }
 
-  // Interfaz Principal
   return (
-    <SafeAreaProvider>
-      <View style={styles.root}>
-        <View style={styles.content}>
-          <SwipePager index={index} count={screens.length} onIndexChange={setIndex}>
-            {screens[index]}
-          </SwipePager>
-        </View>
-
-        <BottomTabBar tabs={tabs} activeIndex={index} onChange={setIndex} />
-        
-        <StatusBar style="dark" />
-      </View>
-    </SafeAreaProvider>
+    <CameraProvider>
+      <NavigationContainer>
+        <SafeAreaProvider>
+          <View style={styles.root}>
+            <View style={styles.content}>
+              <SwipePager 
+                index={index} 
+                count={tabs.length} 
+                onIndexChange={setIndex}
+              >
+                <CameraScreens index={index} />
+              </SwipePager>
+            </View>
+            <BottomTabBar tabs={tabs} activeIndex={index} onChange={setIndex} />
+            <StatusBar style="dark" />
+          </View>
+        </SafeAreaProvider>
+      </NavigationContainer>
+    </CameraProvider>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { 
-    flex: 1, 
-    backgroundColor: '#fff' 
-  },
-  content: { 
-    flex: 1 
-  },
+  root: { flex: 1, backgroundColor: '#fff' },
+  content: { flex: 1 },
   splashContainer: {
     flex: 1,
-    backgroundColor: '#0B5FFF', // Color azul del Splash
+    backgroundColor: '#0B5FFF',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  lottie: { 
-    width: '100%', 
-    height: '100%' 
-  },
+  lottie: { width: '100%', height: '100%' },
 });
