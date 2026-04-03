@@ -12,7 +12,7 @@ import * as Speech from "expo-speech";
 import * as ImageManipulator from "expo-image-manipulator";
 import { useCamera } from "../ui/CameraContext"; // Ajusta la ruta
 
-const WALK_ENDPOINT = "http://16.58.82.203:8000/walk";
+const WALK_ENDPOINT = "https://4lqo2oo1oycgok-8000.proxy.runpod.net/walk";
 
 export default function WalkModeScreen() {
   const cameraRef = useRef<CameraView | null>(null);

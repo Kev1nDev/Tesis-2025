@@ -11,7 +11,8 @@ import { Snackbar, Text, IconButton } from 'react-native-paper';
 import { assertEnv } from '../config/env';
 import { useCamera } from '../ui/CameraContext';
 
-const EC2_URL = 'http://16.58.82.203:8000';
+//const EC2_URL = 'http://16.58.82.203:8000';
+const EC2_URL = 'https://4lqo2oo1oycgok-8000.proxy.runpod.net';
 
 export default function DescribeScreen() {
   const [camPermission, requestCamPermission] = useCameraPermissions();

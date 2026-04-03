@@ -10,7 +10,7 @@ const SPEECH_PRIORITY_STATUS = 30;
 const SPEECH_PRIORITY_TEXT = 100;
 const SPEECH_PRIORITY_ERROR = 200;
 
-const EC2_ENDPOINT = 'http://16.58.82.203:8000/caption';
+const EC2_ENDPOINT = 'https://4lqo2oo1oycgok-8000.proxy.runpod.net/caption';
 
 export default function DescribeCameraScreen() {
   const cameraRef = useRef<CameraView>(null);
