@@ -1,16 +1,16 @@
 // DescribeScreen.tsx (Descripción Detallada)
 import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, View, Pressable, Platform, ActivityIndicator } from 'react-native'; 
+import { StyleSheet, View, Pressable, Platform, ActivityIndicator, SafeAreaView } from 'react-native'; 
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Speech from 'expo-speech';
 import * as Location from 'expo-location';
 import { Audio } from 'expo-av';
 import { useIsFocused } from '@react-navigation/native';
+import { Snackbar, Text, IconButton } from 'react-native-paper';
 
 import { assertEnv } from '../config/env';
-import { useCamera } from '../ui/CameraContext'; // Ajusta la ruta
+import { useCamera } from '../ui/CameraContext';
 
-// 🔥 URL de tu EC2
 const EC2_URL = 'http://16.58.82.203:8000';
 
 export default function DescribeScreen() {
@@ -18,14 +18,19 @@ export default function DescribeScreen() {
   const [busy, setBusy] = useState(false);
   const [cameraInitialized, setCameraInitialized] = useState(false);
   
+  // 👇 Estado para Snackbar de Paper
+  const [snackbar, setSnackbar] = useState<{
+    visible: boolean;
+    message: string;
+    type: 'error' | 'success' | 'info';
+  }>({ visible: false, message: '', type: 'info' });
+
   const cameraRef = useRef<CameraView>(null);
   const isFocused = useIsFocused();
   
-  // Usar el contexto de cámara
   const { activeScreen, setCameraReady } = useCamera();
   const screenKey = 'detallada';
   
-  // Prioridades de speech
   const SPEECH_PRIORITY_STATUS = 30;
   const SPEECH_PRIORITY_TEXT = 100;
   const SPEECH_PRIORITY_ERROR = 200;
@@ -43,7 +48,6 @@ export default function DescribeScreen() {
     };
   }, [cameraInitialized]);
 
-  // Solo renderizar completamente cuando esta pantalla está activa
   const isActive = activeScreen === screenKey && isFocused;
 
   useEffect(() => {
@@ -54,10 +58,46 @@ export default function DescribeScreen() {
         await Audio.requestPermissionsAsync();
         await Location.requestForegroundPermissionsAsync();
       } catch (e) {
-        speak('Error al iniciar la aplicación.');
+        speak('Error al iniciar la aplicación.', SPEECH_PRIORITY_ERROR);
+        showErrorSnackbar('Error de permisos', e);
       }
     })();
   }, []);
+
+  // 👇 Helpers para Snackbar
+  const showErrorSnackbar = (message: string, error?: any) => {
+    let fullMessage = message;
+    if (error?.message) {
+      if (error.message.includes('Network request failed')) {
+        fullMessage += '\n🔌 Verifica: IP, puerto 8000, cleartext';
+      } else if (error.message.includes('cleartext') || error.message.includes('HTTP')) {
+        fullMessage += '\n🔐 HTTP no permitido';
+      } else if (error.message.includes('timeout')) {
+        fullMessage += '\n⏱️ Timeout del servidor';
+      } else {
+        fullMessage += `\n${error.message}`;
+      }
+    }
+    console.error('🚨 SNACKBAR ERROR:', fullMessage);
+    setSnackbar({ visible: true, message: fullMessage, type: 'error' });
+  };
+
+  const showSuccessSnackbar = (message: string) => {
+    setSnackbar({ visible: true, message, type: 'success' });
+  };
+
+  const showInfoSnackbar = (message: string) => {
+    setSnackbar({ visible: true, message, type: 'info' });
+  };
+
+  const getSnackbarColor = () => {
+    switch (snackbar.type) {
+      case 'error': return '#d32f2f';
+      case 'success': return '#388e3c';
+      case 'info': return '#1976d2';
+      default: return '#333';
+    }
+  };
 
   function speak(text: string, priority = SPEECH_PRIORITY_STATUS) {
     console.log('SPEAK:', text, 'PRIORITY:', priority);
@@ -68,22 +108,26 @@ export default function DescribeScreen() {
     Speech.speak(text, { language: 'es', rate: 0.95, pitch: 1 });
   }
 
-  async function describeEnvironment(imageBase64: string) {
+  // 👇 Función corregida: recibe URI, NO base64
+  async function describeEnvironment(imageUri: string) {
     try {
       const formData = new FormData();
       
       formData.append('file', {
-        uri: `data:image/jpeg;base64,${imageBase64}`,
+        uri: imageUri,
         type: 'image/jpeg',
-        name: 'photo.jpg'
+        name: 'photo.jpg',
       } as any);
       
       formData.append('prompt', 'Describe esta escena en detalle para una persona con discapacidad visual');
-      formData.append('system_prompt', 'Eres un asistente especializado en describir imágenes para personas ciegas. Tus descripciones deben ser detalladas, útiles y en español natural.');
-      formData.append('temperature', '0.7');
-      formData.append('max_tokens', '1024');
+      formData.append('system_prompt', 'Eres un asistente especializado en describir imágenes para personas ciegas. Tus descripciones deben ser detalladas, útiles y en español natural. DESCRIBE SOLO LO QUE VEAS, NO INVENTES.');
+      formData.append('temperature', '0.1');        // 🔥 REDUCIDO para menos especulación
+      formData.append('max_tokens', '512');         // 🔥 REDUCIDO para respuestas concisas
       formData.append('translate', 'true');
-      formData.append('use_blip_first', 'true');
+      formData.append('use_blip_first', 'false');   // 🔥 Usar Moondream por defecto
+      formData.append('use_moondream', 'true');     // 🔥 Activar Moondream
+
+      console.log('📤 Enviando a:', `${EC2_URL}/describe`);
 
       const response = await fetch(`${EC2_URL}/describe`, {
         method: 'POST',
@@ -93,23 +137,27 @@ export default function DescribeScreen() {
         },
       });
 
+      // 🔥 LOG COMPLETO DEL RESPONSE PARA DEBUG
+      console.log('📡 Response status:', response.status);
+      console.log('📡 Response headers:', Object.fromEntries(response.headers.entries()));
+      
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Error response:', errorText);
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorText = await response.text().catch(() => 'Sin detalles');
+        console.error('❌ Error response body:', errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
 
       const data = await response.json();
+      console.log('✅ Response data:', JSON.stringify(data, null, 2).slice(0, 500) + '...');
       return data;
 
     } catch (error) {
-      console.error('Error describiendo con EC2:', error);
+      console.error('❌ Error describiendo con EC2:', error);
       throw error;
     }
   }
 
   async function describe() {
-    // Verificar que la pantalla está activa antes de proceder
     if (!isActive) {
       console.log('⏸️ DescribeScreen no está activa, ignorando captura');
       return;
@@ -123,94 +171,143 @@ export default function DescribeScreen() {
       speak('Capturando imagen');
 
       const photo = await cameraRef.current.takePictureAsync({
-        base64: true,
+        base64: false,
         quality: 0.7,
       });
 
-      if (!photo?.base64) {
+      if (!photo?.uri) {
         throw new Error('No se pudo capturar la imagen');
       }
 
-      // Verificar nuevamente si seguimos activos después de la captura
       if (!isActive) {
-        console.log('⏸️ Pantalla desactivada durante captura, cancelando');
         setBusy(false);
         return;
       }
 
-      // Opcional: Obtener ubicación
-      const location = await Location.getCurrentPositionAsync({});
-      console.log('📍 Ubicación:', location.coords);
+      // Ubicación opcional
+      try {
+        const location = await Location.getCurrentPositionAsync({ 
+          accuracy: Location.Accuracy.Balanced 
+        });
+        console.log('📍 Ubicación:', location.coords);
+      } catch (locErr) {
+        console.log('⚠️ Ubicación no disponible:', locErr);
+      }
 
       speak('Analizando el entorno');
 
-      const result = await describeEnvironment(photo.base64);
+      const result = await describeEnvironment(photo.uri);
       
-      // Verificar una vez más si seguimos activos antes de hablar
-      if (isActive) {
+      if (isActive && result?.response) {
         speak(result.response, SPEECH_PRIORITY_TEXT);
+        showSuccessSnackbar('✅ Escena descrita');
       }
 
-    } catch (e) {
-      console.error('Error en describe:', e);
+    } catch (e: any) {
+      console.error('❌ Error en describe:', e);
+      
       if (isActive) {
-        speak('Ocurrió un error al describir el entorno', SPEECH_PRIORITY_ERROR);
+        if (e.message?.includes('Network request failed')) {
+          showErrorSnackbar('🔌 Sin conexión al servidor', e);
+          speak('Error de conexión', SPEECH_PRIORITY_ERROR);
+        } else if (e.message?.includes('HTTP 4') || e.message?.includes('HTTP 5')) {
+          showErrorSnackbar('⚠️ Error del servidor', e);
+          speak('Error en el procesamiento', SPEECH_PRIORITY_ERROR);
+        } else if (e.message?.includes('cleartext') || e.message?.includes('HTTP')) {
+          showErrorSnackbar('🔐 HTTP no permitido', e);
+          speak('Error de seguridad de red', SPEECH_PRIORITY_ERROR);
+        } else {
+          showErrorSnackbar('❌ Error: ' + (e.message || 'Desconocido'), e);
+          speak('Ocurrió un error al describir el entorno', SPEECH_PRIORITY_ERROR);
+        }
       }
     } finally {
       setBusy(false);
     }
   }
 
-  // Limpiar speech cuando la pantalla se desactiva
+  // Limpieza de speech cuando la pantalla se desactiva
   useEffect(() => {
     if (!isActive) {
       Speech.stop();
       lastSpokenPriority.current = 0;
+      setBusy(false);
     }
   }, [isActive]);
 
-  return (
-    <Pressable 
-      style={styles.fullscreen} 
-      onPress={describe}      
-      onLongPress={() => {
-        if (isActive) {
-          speak('Presiona la pantalla para describir la escena a detalle', SPEECH_PRIORITY_STATUS);
-        }
-      }}
-    >
-      {isActive && (
-        <CameraView
-          ref={cameraRef}
-          style={StyleSheet.absoluteFill}
-          facing="back"
-          active={isActive}  // ← ¡ESTA LÍNEA ES CRUCIAL!
-          onCameraReady={() => setCameraInitialized(true)}
-          onMountError={(error) => console.error('Error montando cámara:', error)}
-        />
-      )}
+  // Limpieza total al desmontar
+  useEffect(() => {
+    return () => {
+      Speech.stop();
+      lastSpokenPriority.current = 0;
+    };
+  }, []);
 
-      {busy && (
-        <View style={styles.overlay}>
-          <ActivityIndicator size="large" color="#0b5fff" />
-        </View>
-      )}
-    </Pressable>
+  return (
+    <View style={styles.container}>
+      <Pressable 
+        style={styles.fullscreen} 
+        onPress={describe}      
+        onLongPress={() => {
+          if (isActive) {
+            speak('Presiona la pantalla para describir la escena a detalle', SPEECH_PRIORITY_STATUS);
+          }
+        }}
+      >
+        {isActive && (
+          <CameraView
+            ref={cameraRef}
+            style={StyleSheet.absoluteFill}
+            facing="back"
+            active={isActive}
+            onCameraReady={() => setCameraInitialized(true)}
+            onMountError={(error) => {
+              console.error('Error montando cámara:', error);
+              showErrorSnackbar('📷 Error de cámara', error);
+            }}
+          />
+        )}
+
+        {busy && (
+          <View style={styles.overlay}>
+            <ActivityIndicator size="large" color="#0b5fff" />
+          </View>
+        )}
+      </Pressable>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  fullscreen: {
+  container: {
     flex: 1,
     backgroundColor: 'black',
   },
+  fullscreen: {
+    flex: 1,
+  },
   overlay: {
-    position: "absolute",
+    position: 'absolute',
     top: '40%',
-    alignSelf: "center",
-    backgroundColor: "rgba(0,0,0,0.6)",
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
     padding: 30,
     borderRadius: 20,
     zIndex: 10,
-  }
+  },
+  // 🔥 Snackbar SIEMPRE visible encima de la cámara
+  snackbar: {
+    position: 'absolute',
+    bottom: Platform.OS === 'android' ? 20 : 40,  // Más margen en Android
+    left: 12,
+    right: 12,
+    zIndex: 100,  // 🔥 CRÍTICO: encima de la cámara
+    elevation: 10,  // 🔥 Android shadow
+    borderRadius: 8,
+  },
+  snackbarText: {
+    color: '#fff',
+    fontWeight: '500',
+    lineHeight: 20,  // Mejor legibilidad
+  },
 });

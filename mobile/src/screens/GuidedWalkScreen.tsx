@@ -46,7 +46,7 @@ export default function WalkModeScreen() {
 
   const explainWalkMode = () => {
   // 🔥 Explicación breve de la utilidad de la pantalla
-  const explanation = "Usa la cámara para detectar obstáculos como personas, escaleras o paredes en tu camino. Presiona para iniciar. Presiona prolongadamente para detener. La cámara se activará cada pocos segundos para analizar tu entorno. Nunca te guies solo por esta herramienta, siempre camina con asistencia o bastón guiador.";
+  const explanation = "Usa la cámara para detectar obstáculos a tu izquierda, centro o derecha como personas, escaleras o sillas en tu camino. Presiona para iniciar. Presiona prolongadamente para detener. La cámara se activará cada pocos segundos para analizar tu entorno. Nunca te guies solo por esta herramienta de apoyo, camina junto con asistencia o bastón guiador.";
   
   Speech.stop();
   speak(explanation);

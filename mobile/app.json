@@ -35,7 +35,7 @@
         "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
       "adaptiveIcon": {
-        "foregroundImage": "./assets/eye.png",
+        "foregroundImage": "./assets/ic_launcher.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
@@ -47,7 +47,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": "9a135dcc-f9c7-4009-bfcc-0e5c8c465bd0"
+        "projectId": "b7f0b73c-7d9c-4e12-adba-e84d4ac5ba03"
       }
     },
     "plugins": [
