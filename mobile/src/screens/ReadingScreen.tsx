@@ -12,7 +12,7 @@ const SPEECH_PRIORITY_TEXT = 100;
 const SPEECH_PRIORITY_ERROR = 200;
 
 // Asegúrate de que esta IP sea la correcta de tu instancia EC2
-const EC2_ENDPOINT = 'http://16.58.82.203:8000/book';
+const EC2_ENDPOINT = 'https://4lqo2oo1oycgok-8000.proxy.runpod.net/book';
 
 export default function ReadingScreen() {
   const cameraRef = useRef<CameraView>(null);
